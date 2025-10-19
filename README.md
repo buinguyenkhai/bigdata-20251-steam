@@ -1,28 +1,21 @@
-Backend (HDFS + NoSQL)
+#  MongoDB Installation 
 
-Overview
-This module is in charge of the data storage layer for the project.  
-It handles both:
-- HDFS — distributed file system for storing large data.
-- NoSQL database — for storing structured or semi-structured data.
+## Installation (Windows)
 
-Responsibilities
-- Deploy HDFS pods (NameNode, DataNode).
-- Configure Apache Spark to write data into HDFS.
-- Set up a NoSQL database (e.g., MongoDB or Cassandra).
-- Design a basic schema for storing processed data.
+1. Download the MongoDB installer (the latest version):  
+   [MongoDB Enterprise Download](https://www.mongodb.com/try/download/enterprise)
 
-Tools & Technologies
-- HDFS (Hadoop 3.x)
-- Apache Spark
-- MongoDB (NoSQL)
-- Docker / Kubernetes (for deployment)
-- Python (for Spark write tests)
+2. Run the `.msi` installer and follow setup wizard:
+   - Choose **Complete** setup.
+   - Enable **Install MongoDB as a Service**.
+   - Optionally install **MongoDB Compass (GUI)**.
 
-Expected Output
-- Running HDFS service (accessible via web UI or CLI).
-- Spark successfully writes sample data to HDFS.
-- NoSQL database deployed and tested with sample schema.
-- Documentation of setup steps and connection config.
-
-
+3. Create data directory (if not installed as service):
+   mkdir C:\data\db
+   "C:\Program Files\MongoDB\Server\<version>\bin\mongod.exe" --dbpath="C:\data\db"
+4. Add mongod.exe path to Environment Variables:
+  C:\Program Files\MongoDB\Server\<version>\bin
+5. Start MongoDB manually (if needed):
+  net start MongoDB
+6. Test MongoDB:
+  mongosh
