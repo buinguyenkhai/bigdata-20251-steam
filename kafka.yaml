@@ -1,0 +1,19 @@
+---
+apiVersion: kafka.stackable.tech/v1alpha1
+kind: KafkaCluster
+metadata:
+  name: simple-kafka
+spec:
+  image:
+    productVersion: 3.9.1
+  clusterConfig:
+    tls:
+      serverSecretClass: null
+    zookeeperConfigMapName: simple-kafka-znode
+  brokers:
+    config:
+      bootstrapListenerClass: external-unstable # This exposes your Stacklet outside of Kubernetes. Remove this property if this is not desired
+      brokerListenerClass: external-unstable # This exposes your Stacklet outside of Kubernetes. Remove this property if this is not desired
+    roleGroups:
+      default:
+        replicas: 3
