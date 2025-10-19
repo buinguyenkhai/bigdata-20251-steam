@@ -1,0 +1,27 @@
+---
+apiVersion: hdfs.stackable.tech/v1alpha1
+kind: HdfsCluster
+metadata:
+  name: simple-hdfs
+spec:
+  image:
+    productVersion: 3.4.1
+  clusterConfig:
+    zookeeperConfigMapName: simple-hdfs-znode
+    dfsReplication: 1
+  nameNodes:
+    config:
+      listenerClass: external-stable # This exposes your Stacklet outside of Kubernetes. Remove this configuration if this is not desired
+    roleGroups:
+      default:
+        replicas: 2
+  dataNodes:
+    config:
+      listenerClass: external-unstable # This exposes your Stacklet outside of Kubernetes. Remove this configuration if this is not desired
+    roleGroups:
+      default:
+        replicas: 1
+  journalNodes:
+    roleGroups:
+      default:
+        replicas: 1
