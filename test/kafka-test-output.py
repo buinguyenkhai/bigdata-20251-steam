@@ -1,23 +1,47 @@
 from pyspark.sql import SparkSession
-import sys
-import time # Keep time for the sleep command
+from pyspark.sql.functions import col, upper
+import os
 
-# Force stdout/stderr buffers to flush immediately
-sys.stdout.flush()
-sys.stderr.flush()
-
-# --- Initialize Spark session (THIS IS THE CRASH POINT) ---
+# Initialize Spark session
 spark = (
     SparkSession.builder
-    .appName("KafkaTestOutput")
+    .appName("KafkaTestIO")
+    .config("spark.hadoop.fs.defaultFS", "hdfs://simple-hdfs-namenode-0.simple-hdfs-namenode.default.svc.cluster.local:8020")
     .getOrCreate()
 )
 spark.sparkContext.setLogLevel("WARN")
 
-print("--- SPARK SESSION STARTED SUCCESSFULLY ---", flush=True) # FIRST TEST LINE
+print("--- SPARK SESSION STARTED SUCCESSFULLY ---", flush=True)
 
-# The rest of the script is removed to simplify and test initialization
+# Get Kafka details from environment variables
+bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS")
+topic = os.environ.get("KAFKA_TOPIC")
+hdfs_output_path = "hdfs:///user/stackable/test-output"
 
-# Keep the pod alive for 5 minutes for manual debugging
-time.sleep(300) 
-print("Test stream finishing...", flush=True)
+print(f"Reading from Kafka topic '{topic}' at {bootstrap_servers}", flush=True)
+
+# Read a stream from Kafka
+df = (
+    spark.readStream
+    .format("kafka")
+    .option("kafka.bootstrap.servers", bootstrap_servers)
+    .option("subscribe", topic)
+    .load()
+)
+
+# Perform a simple transformation (convert value to uppercase string)
+transformed_df = df.select(upper(col("value").cast("string")).alias("value"))
+
+# Write the transformed stream to HDFS as text files
+query = (
+    transformed_df.writeStream
+    .outputMode("append")
+    .format("text")
+    .option("path", hdfs_output_path)
+    .option("checkpointLocation", f"{hdfs_output_path}/_checkpoint")
+    .start()
+)
+
+print(f"--- WAITING FOR KAFKA MESSAGES, WRITING TO {hdfs_output_path} ---", flush=True)
+
+query.awaitTermination()
