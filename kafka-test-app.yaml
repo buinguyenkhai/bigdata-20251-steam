@@ -8,8 +8,7 @@ spec:
     productVersion: "3.5.6"
     pullPolicy: "IfNotPresent"
   mode: cluster
-  # Set main application file to the new test script path
-  mainApplicationFile: "local:///opt/spark/work-dir/kafka-test-output.py" 
+  mainApplicationFile: "local:///opt/spark/work-dir/kafka-test-output.py"
 
   deps:
     requirements:
@@ -18,7 +17,6 @@ spec:
   sparkConf:
     spark.app.name: "KafkaTestOutput"
     spark.hadoop.fs.defaultFS: "hdfs://simple-hdfs-namenode-0.simple-hdfs-namenode.default.svc.cluster.local:8020"
-    # Reduce memory for fast start
     spark.driver.memory: 512m
     spark.executor.memory: 512m
 
@@ -28,7 +26,18 @@ spec:
     - name: KAFKA_TOPIC
       value: "test-topic"
 
-  volumes: 
+  volumes:
     - name: kafka-script
       configMap:
-        name: kafka-test-script # Reference the new ConfigMap name
+        name: kafka-test-script
+
+  driver:
+    config:
+      volumeMounts:
+        - name: kafka-script # This must match the volume name above
+          mountPath: /opt/spark/work-dir # This must match the path in mainApplicationFile
+  executor:
+    config:
+      volumeMounts:
+        - name: kafka-script
+          mountPath: /opt/spark/work-dir
