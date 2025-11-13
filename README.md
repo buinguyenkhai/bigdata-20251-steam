@@ -3,7 +3,7 @@
 ## Installation (Windows)
 
 1. Download the MongoDB installer (the latest version):  
-   [MongoDB Enterprise Download](https://www.mongodb.com/try/download/enterprise)
+   [MongoDB Community Download](https://www.mongodb.com/try/download/community)
 
 2. Run the `.msi` installer and follow setup wizard:
    - Choose **Complete** setup.
