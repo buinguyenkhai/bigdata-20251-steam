@@ -19,3 +19,7 @@
   net start MongoDB
 6. Test MongoDB:
   mongosh
+## Setup Environment
+
+1. Run the test HDFS on -main directory.
+2. Run this line to setup MongoDB in k8s: kubectl apply -f mongodb-deployment.yaml
