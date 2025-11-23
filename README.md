@@ -16,7 +16,25 @@ helm install --wait hdfs-operator oci://oci.stackable.tech/sdp-charts/hdfs-opera
 helm install --wait spark-k8s-operator oci://oci.stackable.tech/sdp-charts/spark-k8s-operator --version 25.7.0
 ```
 6. Testing Kafka and HDFS (may take a few minutes):
+Create two topic:
 ```
-.\test\test-kafka.ps1
-.\test\test-hdfs.ps1
+kubectl exec -it simple-kafka-broker-default-0 -c kafka -- `
+  bin/kafka-topics.sh --create `
+  --bootstrap-server localhost:9092 `
+  --topic game_info `
+  --partitions 3 `
+  --replication-factor 1
+
+kubectl exec -it simple-kafka-broker-default-0 -c kafka -- `
+  bin/kafka-topics.sh --create `
+  --bootstrap-server localhost:9092 `
+  --topic game_comments `
+  --partitions 3 `
+  --replication-factor 1
+
+```
+Create producer pod:
+```
+docker build -t steam-producer:latest .
+kubectl apply -f steam-producer-deployment.yaml
 ```
