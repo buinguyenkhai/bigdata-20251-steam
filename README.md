@@ -15,8 +15,13 @@ helm install --wait kafka-operator oci://oci.stackable.tech/sdp-charts/kafka-ope
 helm install --wait hdfs-operator oci://oci.stackable.tech/sdp-charts/hdfs-operator --version 25.7.0
 helm install --wait spark-k8s-operator oci://oci.stackable.tech/sdp-charts/spark-k8s-operator --version 25.7.0
 ```
-6. Testing Kafka and HDFS (may take a few minutes):
-```
-.\test\test-kafka.ps1
-.\test\test-hdfs.ps1
+6. Testing (may take a few minutes):
+```powershell
+.\test\start.ps1              # Fresh deployment (deletes everything, deploys Zookeeper, Kafka, HDFS)
+.\test\test-hdfs.ps1          # Tests HDFS file upload/download
+.\test\test-kafka.ps1         # Tests Kafka produce/consume
+.\test\test-spark-kafka-app.ps1  # Tests the full Spark streaming pipeline
+
+# Or run all tests at once:
+.\test\test-all.ps1
 ```

@@ -4,7 +4,7 @@ $ErrorActionPreference = "Stop"
 # Deploy dependencies
 kubectl apply -f zookeeper.yaml
 kubectl apply -f kafka-znode.yaml
-kubectl apply --server-side -f kafka.yaml
+kubectl apply --server-side --force-conflicts -f kafka.yaml
 
 kubectl rollout status --watch --timeout=10m statefulset/simple-kafka-broker-default
 
