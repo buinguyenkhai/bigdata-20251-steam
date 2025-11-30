@@ -6,6 +6,10 @@ metadata:
 spec:
   image:
     productVersion: 3.9.3
+  clusterConfig:
+    tls:
+      serverSecretClass: null
+      quorumSecretClass: null
   servers:
     roleGroups:
       default:

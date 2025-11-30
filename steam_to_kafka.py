@@ -1,32 +1,16 @@
-#!/usr/bin/env python3
-"""
-steam_to_kafka.py
-
-Fetch Steam search/app details and reviews, send to Kafka topics:
- - game_info
- - game_comments
-
-Uses confluent-kafka Producer.
-"""
-
 import time
 import json
 import re
 from datetime import datetime
-from pathlib import Path
 import requests
 from confluent_kafka import Producer
-"""
-# ---------- Configuration ----------
-BOOTSTRAP_SERVERS = "localhost:9092"   # <-- change to your broker(s)
-TOPIC_GAME_INFO = "game_info"
-TOPIC_GAME_COMMENTS = "game_comments"
-"""
 import os
 
 BOOTSTRAP_SERVERS = os.getenv("BOOTSTRAP_SERVERS", "localhost:9092")
 TOPIC_GAME_INFO = os.getenv("TOPIC_GAME_INFO", "game_info")
 TOPIC_GAME_COMMENTS = os.getenv("TOPIC_GAME_COMMENTS", "game_comments")
+FILTERS_ENV = os.getenv("FILTERS", "topsellers")
+PAGE_LIST_ENV = os.getenv("PAGE_LIST", "1")
 
 # Search params
 PARAMS_SR_DEFAULT = {
@@ -41,19 +25,27 @@ producer_conf = {
     "bootstrap.servers": BOOTSTRAP_SERVERS,
     "client.id": "steam-producer",
     "linger.ms": 5,
-    # increase retries if needed
 }
 producer = Producer(producer_conf)
+
+delivery_stats = {"success": 0, "failed": 0, "last_error": None}
+MAX_DELIVERY_FAILURES = 100
 
 def print_log(*args):
     print(f"[{str(datetime.now())[:-3]}] ", end="")
     print(*args)
 
 def delivery_report(err, msg):
+    """Callback for Kafka message delivery with error tracking."""
+    global delivery_stats
     if err is not None:
-        print_log("Delivery failed:", err)
-    # else:
-    #     print_log(f"Delivered to {msg.topic()} [{msg.partition()}] at offset {msg.offset()}")
+        delivery_stats["failed"] += 1
+        delivery_stats["last_error"] = str(err)
+        print_log(f"Delivery failed ({delivery_stats['failed']} total): {err}")
+        if delivery_stats["failed"] >= MAX_DELIVERY_FAILURES:
+            raise Exception(f"Too many Kafka delivery failures: {delivery_stats['failed']}")
+    else:
+        delivery_stats["success"] += 1
 
 def kafka_send(topic: str, value: dict, key: str = None):
     """Send dict as JSON to Kafka."""
@@ -64,7 +56,6 @@ def kafka_send(topic: str, value: dict, key: str = None):
     except Exception as e:
         print_log("Failed to produce message:", e)
 
-# ---------- Steam helpers ----------
 def get_search_results(params, max_retries=3, backoff=2):
     url = "https://store.steampowered.com/search/results/"
     for attempt in range(1, max_retries + 1):
@@ -167,7 +158,6 @@ def fetch_steam_reviews(app_id, max_pages=5, delay=1, start_date=None, end_date=
                 "timestamp_unix": ts,
                 "timestamp": datetime.fromtimestamp(ts).isoformat() if ts else None,
                 "review": r.get("review"),
-                # include raw vote summary if present
                 "votes_funny": r.get("votes_funny"),
             }
             total += 1
@@ -179,12 +169,14 @@ def fetch_steam_reviews(app_id, max_pages=5, delay=1, start_date=None, end_date=
         print_log(f"Fetched page {page+1} for app {app_id} - reviews so far: {total}")
         time.sleep(delay)
 
-# ---------- Flatten / prepare game info ----------
 def flatten_appdetail_record(item):
     """
     Build a reasonably compact JSON record for game_info. Keeps key nested fields as needed.
     We use appdetail.data as source (if present). The uploaded hierarchy lists many available fields (developers, genres, price_overview, platforms, release_date, etc).
     See uploaded hierarchy reference for full structure.
+    
+    IMPORTANT: Nested objects (lists/dicts) are serialized as JSON strings to match
+    the Spark schema which expects StringType for these fields.
     """
     
     appdetail = item.get("appdetail", {})
@@ -195,25 +187,21 @@ def flatten_appdetail_record(item):
         "appid": int(item.get("appid")) if item.get("appid") else None,
         "type": data.get("type"),
         "short_description": data.get("short_description"),
-        "developers": data.get("developers") or [],
-        "publishers": data.get("publishers") or [],
-        "genres": [g.get("description") for g in (data.get("genres") or [])],
-        "price_overview": data.get("price_overview") or {},
-        "platforms": data.get("platforms") or {},
+        "developers": json.dumps(data.get("developers") or []),
+        "publishers": json.dumps(data.get("publishers") or []),
+        "genres": json.dumps([g.get("description") for g in (data.get("genres") or [])]),
+        "price_overview": json.dumps(data.get("price_overview") or {}),
+        "platforms": json.dumps(data.get("platforms") or {}),
         "header_image": data.get("header_image"),
-        "release_date": data.get("release_date") or {},
-        "recommendations": data.get("recommendations") or {},
-        "achievements": data.get("achievements") or {},
-        # small summary counts to help downstream
+        "release_date": json.dumps(data.get("release_date") or {}),
+        "recommendations": json.dumps(data.get("recommendations") or {}),
+        "achievements": json.dumps(data.get("achievements") or {}),
         "screenshots_count": len(data.get("screenshots") or []),
         "movies_count": len(data.get("movies") or []),
         "timestamp": datetime.utcnow().isoformat(),
     }
-    # optionally include raw data for some nested fields if needed (commented out)
-    # rec["raw_appdetail"] = data
     return rec
 
-# ---------- Orchestration ----------
 def process_toplist_and_send(params_list, page_list):
     for update_param in params_list:
         for page_no in page_list:
@@ -226,7 +214,6 @@ def process_toplist_and_send(params_list, page_list):
             print_log(f"Fetched {len(items)} search items page={page_no} filter={update_param.get('filter')}")
 
             for item in items:
-                # extract appid from logo (best-effort)
                 try:
                     item["appid"] = re.search(r"steam/\w+/(\d+)", item.get("logo", "")).group(1)
                 except Exception:
@@ -241,37 +228,47 @@ def process_toplist_and_send(params_list, page_list):
 
                 appdetails = get_app_details(appid)
                 item["appdetail"] = appdetails
-
-                # prepare and send game_info message
                 info_rec = flatten_appdetail_record(item)
                 kafka_send(TOPIC_GAME_INFO, info_rec, key=str(info_rec.get("appid")))
-
-                # fetch reviews and send comments
                 for review in fetch_steam_reviews(appid, max_pages=3, delay=1):
                     kafka_send(TOPIC_GAME_COMMENTS, review, key=str(appid))
-
-                # small pause between games to avoid aggressive scraping
                 time.sleep(1)
-
-    # ensure all messages delivered
     producer.flush()
     print_log("Finished sending all game info and comments.")
 
-# ---------- Main ----------
+def verify_kafka_connection(timeout=10):
+    """Verify Kafka broker is reachable before starting pipeline."""
+    print_log(f"Verifying Kafka connection to {BOOTSTRAP_SERVERS}...")
+    try:
+        metadata = producer.list_topics(timeout=timeout)
+        print_log(f"  Connected! Found {len(metadata.topics)} topics.")
+        return True
+    except Exception as e:
+        print_log(f"  Failed to connect to Kafka: {e}")
+        return False
+
 if __name__ == "__main__":
-    # Example usage: process 1 page of topsellers and push to Kafka
-    PARAMS_LIST = [
-        {"filter": "topsellers"},
-        # add more filters if desired:
-        # {"filter": "globaltopsellers"}, {"filter": "popularnew"},
-    ]
-    PAGE_LIST = [1]  # increase to fetch more pages
+    PARAMS_LIST = [{"filter": f.strip()} for f in FILTERS_ENV.split(",") if f.strip()]
+    PAGE_LIST = [int(p.strip()) for p in PAGE_LIST_ENV.split(",") if p.strip()]
 
     print_log("Starting Steam -> Kafka pipeline")
+    print_log(f"  Bootstrap servers: {BOOTSTRAP_SERVERS}")
+    print_log(f"  Topics: {TOPIC_GAME_INFO}, {TOPIC_GAME_COMMENTS}")
+    print_log(f"  Filters: {[p['filter'] for p in PARAMS_LIST]}")
+    print_log(f"  Pages: {PAGE_LIST}")
+
+    if not verify_kafka_connection():
+        print_log("ERROR: Cannot connect to Kafka. Exiting.")
+        exit(1)
+    
     try:
         process_toplist_and_send(PARAMS_LIST, PAGE_LIST)
     except KeyboardInterrupt:
         print_log("Interrupted by user.")
+    except Exception as e:
+        print_log(f"Pipeline error: {e}")
+        raise
     finally:
         producer.flush()
-        print_log("Producer flushed. Exiting.")
+        print_log(f"Producer flushed. Stats: {delivery_stats}")
+        print_log("Exiting.")

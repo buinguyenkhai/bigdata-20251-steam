@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# Test files
+test/
+inputs/
+
+# Documentation
+README.md
+LICENSE
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+venv/
+ENV/
+
+# Kubernetes manifests
+*.yaml
+!requirements.txt
+
+# Misc
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
