@@ -25,4 +25,5 @@
 2. Run this line to setup MongoDB in k8s: kubectl apply -f mongodb-deployment.yaml
 3. To access MongoDB from cluster: kubectl port-forward svc/mongodb-service 27017:27017
 4. Test on new terminal: mongosh mongodb://localhost:27017
+5. Run: python spark.py and go check on the MongoDB compass, all the items added will appear.
 
