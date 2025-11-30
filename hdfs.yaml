@@ -9,6 +9,7 @@ spec:
   clusterConfig:
     zookeeperConfigMapName: simple-hdfs-znode
     dfsReplication: 1
+    authentication: null
   nameNodes:
     config:
       listenerClass: external-stable

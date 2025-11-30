@@ -1,46 +1,66 @@
 apiVersion: spark.stackable.tech/v1alpha1
 kind: SparkApplication
 metadata:
-  name: steam-reviews-app
+  name: kafka-test-output
   namespace: default
 spec:
   sparkImage:
     productVersion: "3.5.6"
     pullPolicy: "IfNotPresent"
   mode: cluster
-  mainApplicationFile: "local:///opt/spark/work-dir/process_reviews.py"
-  
+  mainApplicationFile: "local:///opt/spark/work-dir/kafka-test-output.py"
+
   deps:
     packages:
       - org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.6
-      - org.mongodb.spark:mongo-spark-connector_2.12:10.5.0
     excludePackages:
       - org.apache.hadoop:hadoop-client-runtime
       - org.apache.hadoop:hadoop-client-api
 
   sparkConf:
-    spark.app.name: "SteamReviews"
+    spark.app.name: "KafkaTestOutput"
+    
+    # HDFS HA configuration
     spark.hadoop.fs.defaultFS: "hdfs://simple-hdfs"
     spark.hadoop.dfs.nameservices: "simple-hdfs"
     spark.hadoop.dfs.ha.namenodes.simple-hdfs: "nn0,nn1"
     spark.hadoop.dfs.namenode.rpc-address.simple-hdfs.nn0: "simple-hdfs-namenode-default-0.simple-hdfs-namenode-default.default.svc.cluster.local:8020"
     spark.hadoop.dfs.namenode.rpc-address.simple-hdfs.nn1: "simple-hdfs-namenode-default-1.simple-hdfs-namenode-default.default.svc.cluster.local:8020"
     spark.hadoop.dfs.client.failover.proxy.provider.simple-hdfs: "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
-    spark.mongodb.write.connection.uri: "mongodb://mongodb.default.svc.cluster.local:27017/game_analytics.steam_reviews"
+    
+    spark.driver.memory: 512m
+    spark.executor.memory: 512m
+
   env:
     - name: KAFKA_BOOTSTRAP_SERVERS
       value: "simple-kafka-broker-default-bootstrap.default.svc.cluster.local:9092"
+    - name: KAFKA_TOPIC
+      value: "test-topic"
+
   volumes:
-    - name: analytics-scripts
+    - name: kafka-script
       configMap:
-        name: kafka-spark-configmap
+        name: kafka-test-script
+
   driver:
     config:
+      resources:
+        cpu:
+          min: "100m"
+          max: "500m"
+        memory:
+          limit: "512Mi"
       volumeMounts:
-        - name: analytics-scripts 
+        - name: kafka-script 
           mountPath: /opt/spark/work-dir
   executor:
     config:
+      resources:
+        cpu:
+          min: "100m"
+          max: "500m"
+        memory:
+          limit: "512Mi"
       volumeMounts:
-        - name: analytics-scripts
+        - name: kafka-script
           mountPath: /opt/spark/work-dir

@@ -1,59 +1,77 @@
-# test-hdfs.ps1
 $ErrorActionPreference = "Stop"
 
-# 1. Deploy dependencies
-Write-Host "Deploying Zookeeper..."
-kubectl apply -f zookeeper.yaml
-kubectl rollout status --watch --timeout=5m statefulset/simple-zk-server-default
+Write-Host "=== HDFS Read/Write Test ===" -ForegroundColor Cyan
 
-Write-Host "Deploying HDFS..."
-kubectl apply -f hdfs-znode.yaml
-kubectl apply -f hdfs.yaml
+Write-Host "`n[1/6] Checking HDFS components..." -ForegroundColor Yellow
+$namenodeStatus = kubectl get pods -l app.kubernetes.io/name=hdfs,app.kubernetes.io/component=namenode -o jsonpath='{.items[0].status.phase}' 2>$null
+$datanodeStatus = kubectl get pods -l app.kubernetes.io/name=hdfs,app.kubernetes.io/component=datanode -o jsonpath='{.items[0].status.phase}' 2>$null
 
-# WAIT: Give the operator time to create the resources
-Write-Host "Waiting 15 seconds for Operator to react..."
-Start-Sleep -Seconds 15
-
-# 2. Wait for Pods (REMOVED JournalNode check)
-Write-Host "Waiting for DataNode..."
-kubectl rollout status --watch --timeout=10m statefulset/simple-hdfs-datanode-default
-
-Write-Host "Waiting for NameNode..."
-kubectl rollout status --watch --timeout=10m statefulset/simple-hdfs-namenode-default
-
-# 3. Deploy WebHDFS helper
-kubectl apply -f webhdfs.yaml
-kubectl rollout status statefulset/webhdfs --timeout=5m
-
-# 4. Create test file
-"some hdfs test data" | Out-File -Encoding ascii testdata.txt
-
-# 5. Copy to pod
-kubectl cp ./testdata.txt webhdfs-0:/tmp
-
-# Step 6: initiate file creation
-Write-Host "Initiating upload..."
-$resp = kubectl exec webhdfs-0 -- curl -s -XPUT -T /tmp/testdata.txt "http://simple-hdfs-namenode-default-0.simple-hdfs-namenode-default.default.svc.cluster.local:9870/webhdfs/v1/testdata.txt?user.name=stackable&op=CREATE&noredirect=true"
-
-if ($resp -match 'http[^\s"]+') {
-    $location = $matches[0]
-    Write-Host "Redirected to: $location"
-} else {
-    Write-Host "Failed to get redirect location. Response was:"
-    Write-Host $resp
+if ($namenodeStatus -ne "Running") {
+    Write-Host "ERROR: HDFS NameNode not running. Run .\test\start.ps1 first." -ForegroundColor Red
     exit 1
 }
+if ($datanodeStatus -ne "Running") {
+    Write-Host "ERROR: HDFS DataNode not running. Run .\test\start.ps1 first." -ForegroundColor Red
+    exit 1
+}
+Write-Host "  NameNode: Running" -ForegroundColor Green
+Write-Host "  DataNode: Running" -ForegroundColor Green
 
-# Step 7: upload to datanode
-Write-Host "Uploading data..."
-kubectl exec webhdfs-0 -- curl -s -XPUT -T /tmp/testdata.txt "$location"
+Write-Host "`n[2/6] Ensuring WebHDFS helper is available..." -ForegroundColor Yellow
+$webhdfsStatus = kubectl get pods -l app=webhdfs -o jsonpath='{.items[0].status.phase}' 2>$null
+if ($webhdfsStatus -ne "Running") {
+    kubectl apply -f webhdfs.yaml 2>$null | Out-Null
+    Write-Host "  Deploying WebHDFS helper..." -ForegroundColor Gray
+    $timeout = 60
+    $elapsed = 0
+    while ($elapsed -lt $timeout) {
+        $webhdfsStatus = kubectl get pods -l app=webhdfs -o jsonpath='{.items[0].status.phase}' 2>$null
+        if ($webhdfsStatus -eq "Running") { break }
+        Start-Sleep -Seconds 5
+        $elapsed += 5
+    }
+}
+Write-Host "  WebHDFS helper: Running" -ForegroundColor Green
 
-# Step 8: verify
-Write-Host "Verifying file exists..."
-kubectl exec webhdfs-0 -- curl -s -XGET "http://simple-hdfs-namenode-default-0.simple-hdfs-namenode-default.default.svc.cluster.local:9870/webhdfs/v1/?op=LISTSTATUS"
+Write-Host "`n[3/6] Finding active NameNode..." -ForegroundColor Yellow
+$activeNN = "simple-hdfs-namenode-default-0"
+$nn0State = kubectl exec simple-hdfs-namenode-default-0 -- hdfs haadmin -getServiceState nn0 2>$null
+if ($nn0State -match "standby") {
+    $activeNN = "simple-hdfs-namenode-default-1"
+}
+Write-Host "  Active NameNode: $activeNN" -ForegroundColor Green
 
-# Step 9: cleanup
-kubectl exec webhdfs-0 -- curl -s -XDELETE "http://simple-hdfs-namenode-default-0.simple-hdfs-namenode-default.default.svc.cluster.local:9870/webhdfs/v1/testdata.txt?user.name=stackable&op=DELETE"
+Write-Host "`n[4/6] Uploading test file to HDFS..." -ForegroundColor Yellow
+$testContent = "hdfs-test-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+$testFile = "/user/stackable/test-hdfs-$((Get-Random)).txt"
 
-Remove-Item testdata.txt -ErrorAction SilentlyContinue
-Write-Host "WebHDFS test completed successfully."
+# Write directly using hdfs dfs command
+$uploadCmd = "echo '$testContent' | hdfs dfs -put - $testFile"
+kubectl exec $activeNN -- bash -c $uploadCmd 2>$null
+Write-Host "  Uploaded to: $testFile" -ForegroundColor Green
+
+Write-Host "`n[5/6] Reading file from HDFS..." -ForegroundColor Yellow
+$readContent = kubectl exec $activeNN -- hdfs dfs -cat $testFile 2>$null
+
+if ($readContent -match $testContent) {
+    Write-Host "  Content verified!" -ForegroundColor Green
+    $success = $true
+} else {
+    Write-Host "  Content mismatch!" -ForegroundColor Red
+    Write-Host "  Expected: $testContent" -ForegroundColor Gray
+    Write-Host "  Got: $readContent" -ForegroundColor Gray
+    $success = $false
+}
+
+Write-Host "`n[6/6] Cleaning up..." -ForegroundColor Yellow
+kubectl exec $activeNN -- hdfs dfs -rm $testFile 2>$null | Out-Null
+Write-Host "  Removed test file" -ForegroundColor Gray
+
+Write-Host "`n============================================" -ForegroundColor Cyan
+if ($success) {
+    Write-Host "  ✓ HDFS TEST PASSED" -ForegroundColor Green
+    exit 0
+} else {
+    Write-Host "  ✗ HDFS TEST FAILED" -ForegroundColor Red
+    exit 1
+}

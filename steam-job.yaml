@@ -3,7 +3,7 @@ kind: ConfigMap
 metadata:
   name: steam-producer-config
 data:
-  BOOTSTRAP_SERVERS: "simple-kafka-broker-default.default.svc.cluster.local:9092"
+  BOOTSTRAP_SERVERS: "simple-kafka-broker-default-bootstrap.default.svc.cluster.local:9093"
   TOPIC_GAME_INFO: "game_info"
   TOPIC_GAME_COMMENTS: "game_comments"
   FILTERS: "topsellers"
@@ -18,7 +18,7 @@ spec:
   backoffLimit: 5            
   template:
     spec:
-      restartPolicy: Never      # Do NOT restart pod after container exits
+      restartPolicy: Never
       containers:
         - name: steam-producer
           image: steam-producer:latest

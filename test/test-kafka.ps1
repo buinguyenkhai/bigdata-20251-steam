@@ -1,35 +1,54 @@
-# test-kafka.ps1
 $ErrorActionPreference = "Stop"
 
-# Deploy dependencies
-kubectl apply -f zookeeper.yaml
-kubectl apply -f kafka-znode.yaml
-kubectl apply --server-side --force-conflicts -f kafka.yaml
+Write-Host "=== Kafka Produce/Consume Test ===" -ForegroundColor Cyan
 
-kubectl rollout status --watch --timeout=10m statefulset/simple-kafka-broker-default
+Write-Host "`n[1/5] Checking Kafka broker..." -ForegroundColor Yellow
+$kafkaPod = kubectl get pods -l app.kubernetes.io/name=kafka -o jsonpath='{.items[0].status.phase}' 2>$null
+if ($kafkaPod -ne "Running") {
+    Write-Host "ERROR: Kafka broker not running. Run .\test\start.ps1 first." -ForegroundColor Red
+    exit 1
+}
+Write-Host "  Kafka broker is running" -ForegroundColor Green
 
-# Port-forward Kafka broker in background
-$pf = Start-Job { kubectl port-forward svc/simple-kafka-broker-default-bootstrap 9092:9092 > $null 2>&1 }
-Start-Sleep -Seconds 3
-
-# Produce data
-"some test data" | kubectl run kcat-producer --rm -i --image=edenhill/kcat:1.7.1 --restart=Never -- `
-  -b simple-kafka-broker-default-bootstrap:9092 -t test-data-topic -P
-
-# Consume data and save output
-kubectl run kcat-consumer --rm -i --image=edenhill/kcat:1.7.1 --restart=Never -- `
-  -b simple-kafka-broker-default-bootstrap:9092 -t test-data-topic -C -e | `
-  Out-File -Encoding ascii read-data.out
-
-# Verify content
-if (Select-String -Path "read-data.out" -Pattern "some test data" -Quiet) {
-    Write-Host "Kafka test succeeded!"
+Write-Host "`n[2/5] Creating test topic..." -ForegroundColor Yellow
+$topics = kubectl exec simple-kafka-broker-default-0 -c kafka -- bin/kafka-topics.sh --list --bootstrap-server localhost:9092 2>$null
+if ($topics -notmatch "test-data-topic") {
+    kubectl exec simple-kafka-broker-default-0 -c kafka -- bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --topic test-data-topic --partitions 1 --replication-factor 1 2>$null | Out-Null
+    Write-Host "  Created topic: test-data-topic" -ForegroundColor Green
 } else {
-    Write-Host "Kafka test failed!"
+    Write-Host "  Topic test-data-topic already exists" -ForegroundColor Gray
 }
 
-# Cleanup
-Remove-Item read-data.out -ErrorAction SilentlyContinue
-Stop-Job $pf | Out-Null
-Remove-Job $pf -Force | Out-Null
+Write-Host "`n[3/5] Producing test message..." -ForegroundColor Yellow
+$testMessage = "kafka-test-message-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
 
+# Use kubectl exec to produce message via console producer
+$produceCmd = "echo '$testMessage' | bin/kafka-console-producer.sh --broker-list localhost:9092 --topic test-data-topic"
+kubectl exec simple-kafka-broker-default-0 -c kafka -- bash -c $produceCmd 2>$null
+Write-Host "  Produced: $testMessage" -ForegroundColor Green
+
+Write-Host "`n[4/5] Consuming message..." -ForegroundColor Yellow
+Start-Sleep -Seconds 2
+
+$consumeCmd = "timeout 5 bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic test-data-topic --from-beginning --max-messages 10 2>/dev/null || true"
+$consumed = kubectl exec simple-kafka-broker-default-0 -c kafka -- bash -c $consumeCmd 2>$null
+
+if ($consumed -match $testMessage) {
+    Write-Host "  Consumed and verified message!" -ForegroundColor Green
+    $success = $true
+} else {
+    Write-Host "  Message verification failed" -ForegroundColor Red
+    Write-Host "  Expected: $testMessage" -ForegroundColor Gray
+    Write-Host "  Got: $consumed" -ForegroundColor Gray
+    $success = $false
+}
+
+Write-Host "`n[5/5] Test Summary" -ForegroundColor Yellow
+Write-Host "============================================" -ForegroundColor Cyan
+if ($success) {
+    Write-Host "  ✓ KAFKA TEST PASSED" -ForegroundColor Green
+    exit 0
+} else {
+    Write-Host "  ✗ KAFKA TEST FAILED" -ForegroundColor Red
+    exit 1
+}

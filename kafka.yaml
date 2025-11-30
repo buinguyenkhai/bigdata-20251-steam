@@ -9,10 +9,12 @@ spec:
   clusterConfig:
     tls:
       serverSecretClass: null
+      internalSecretClass: null
     zookeeperConfigMapName: simple-kafka-znode
   brokers:
     config:
-      bootstrapListenerClass: external-unstable # Stacklet exposure outside of k8s. Remove if not needed.
-      brokerListenerClass: external-unstable # Stacklet exposure outside of k8s. Remove if not needed.
+      bootstrapListenerClass: external-unstable
+      brokerListenerClass: external-unstable
+    roleGroups:
       default:
         replicas: 1 # 3 is recommended for production, 1 for testing

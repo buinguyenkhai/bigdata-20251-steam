@@ -1,8 +1,8 @@
-# --- PART 1: TEARDOWN (Delete everything) ---
 Write-Host "--- Deleting all components... ---" -ForegroundColor Cyan
 
 # 1. Delete Spark App and Configs
 kubectl delete -f kafka-test-app.yaml --ignore-not-found
+kubectl delete -f kafka-test-configmap.yaml --ignore-not-found
 kubectl delete -f kafka-spark-configmap.yaml --ignore-not-found
 
 # 2. Delete Testing Pods
@@ -16,15 +16,19 @@ kubectl delete -f kafka-znode.yaml --ignore-not-found
 kubectl delete -f hdfs-znode.yaml --ignore-not-found
 kubectl delete -f zookeeper.yaml --ignore-not-found
 
-# 4. Wait for Pods to Terminate (Important!)
+# 4. Wait for Pods to Terminate
 Write-Host "Waiting 30 seconds for pods to shut down..." -ForegroundColor Yellow
 Start-Sleep -Seconds 30
 
 # --- PART 2: WIPE DATA (The Fix for Zombie Data) ---
-Write-Host "--- Wiping all persistent data (PVCs)... ---" -ForegroundColor Red
+Write-Host "--- Wiping Stackable persistent data (PVCs)... ---" -ForegroundColor Red
 
-# This deletes the "poisoned" storage that caused the crash
-kubectl delete pvc --all
+# Delete PVCs by label selectors
+kubectl delete pvc -l stackable.tech/vendor=stackable --ignore-not-found
+kubectl delete pvc -l app.kubernetes.io/managed-by=stackable --ignore-not-found
+
+# Also delete Kafka/HDFS/ZK data PVCs by name pattern (they may not have labels)
+kubectl get pvc --no-headers -o custom-columns=":metadata.name" | Where-Object { $_ -match "^(data-simple-|log-dirs-simple-|listener-simple-)" } | ForEach-Object { kubectl delete pvc $_ --ignore-not-found }
 
 # --- PART 3: DEPLOY FRESH (Start Again) ---
 Write-Host "--- Deploying fresh clusters... ---" -ForegroundColor Green
