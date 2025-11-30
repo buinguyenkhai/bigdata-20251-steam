@@ -12,8 +12,7 @@ spec:
     zookeeperConfigMapName: simple-kafka-znode
   brokers:
     config:
-      bootstrapListenerClass: external-unstable # This exposes your Stacklet outside of Kubernetes. Remove this property if this is not desired
-      brokerListenerClass: external-unstable # This exposes your Stacklet outside of Kubernetes. Remove this property if this is not desired
-    roleGroups:
+      bootstrapListenerClass: external-unstable # Stacklet exposure outside of k8s. Remove if not needed.
+      brokerListenerClass: external-unstable # Stacklet exposure outside of k8s. Remove if not needed.
       default:
-        replicas: 3
+        replicas: 1
