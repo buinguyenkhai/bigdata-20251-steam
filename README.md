@@ -15,8 +15,23 @@ helm install --wait kafka-operator oci://oci.stackable.tech/sdp-charts/kafka-ope
 helm install --wait hdfs-operator oci://oci.stackable.tech/sdp-charts/hdfs-operator --version 25.7.0
 helm install --wait spark-k8s-operator oci://oci.stackable.tech/sdp-charts/spark-k8s-operator --version 25.7.0
 ```
-6. Testing Kafka and HDFS (may take a few minutes):
-Create two topic:
+6. Set port forward
+```
+$ErrorActionPreference = "Stop"
+
+# Deploy dependencies
+kubectl apply -f zookeeper.yaml
+kubectl apply -f kafka-znode.yaml
+kubectl apply --server-side -f kafka.yaml
+
+kubectl rollout status --watch --timeout=10m statefulset/simple-kafka-broker-default
+
+# Port-forward Kafka broker in background
+$pf = Start-Job { kubectl port-forward svc/simple-kafka-broker-default-bootstrap 9092:9092 > $null 2>&1 }
+Start-Sleep -Seconds 3
+```
+
+7. Create two topic:
 ```
 kubectl exec -it simple-kafka-broker-default-0 -c kafka -- `
   bin/kafka-topics.sh --create `
@@ -33,8 +48,15 @@ kubectl exec -it simple-kafka-broker-default-0 -c kafka -- `
   --replication-factor 1
 
 ```
-Create producer pod:
+
+8. Produce data to kafka:
 ```
 docker build -t steam-producer:latest .
-kubectl apply -f steam-producer-deployment.yaml
+kubectl apply -f steam-job.yaml
+```
+
+9. Read data from kafka to spark
+```
+kubectl apply -f test.yaml
+kubectl apply -f spark-test-app.yaml
 ```
