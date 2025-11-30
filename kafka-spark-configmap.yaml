@@ -72,9 +72,9 @@ data:
 
     # Simple player traneds analysis
     analytics_df = parsed_df.groupBy("appid").agg(
-        max("player_count").alias("peak_players_24h"),
-        min("player_count").alias("lowest_players_24h"),
-        avg("player_count").alias("avg_players_24h"),
+        max("player_count").alias("peak_playerbase_hourly"),
+        min("player_count").alias("lowest_playerbase_hourly"),
+        avg("player_count").alias("avg_playerbase_hourly"),
         count("timestamp").alias("hours_tracked")
     )
 
