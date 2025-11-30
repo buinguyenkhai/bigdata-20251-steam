@@ -15,13 +15,48 @@ helm install --wait kafka-operator oci://oci.stackable.tech/sdp-charts/kafka-ope
 helm install --wait hdfs-operator oci://oci.stackable.tech/sdp-charts/hdfs-operator --version 25.7.0
 helm install --wait spark-k8s-operator oci://oci.stackable.tech/sdp-charts/spark-k8s-operator --version 25.7.0
 ```
-6. Testing (may take a few minutes):
-```powershell
-.\test\start.ps1              # Fresh deployment (deletes everything, deploys Zookeeper, Kafka, HDFS)
-.\test\test-hdfs.ps1          # Tests HDFS file upload/download
-.\test\test-kafka.ps1         # Tests Kafka produce/consume
-.\test\test-spark-kafka-app.ps1  # Tests the full Spark streaming pipeline
+6. Set port forward
+```
+$ErrorActionPreference = "Stop"
 
-# Or run all tests at once:
-.\test\test-all.ps1
+# Deploy dependencies
+kubectl apply -f zookeeper.yaml
+kubectl apply -f kafka-znode.yaml
+kubectl apply --server-side -f kafka.yaml
+
+kubectl rollout status --watch --timeout=10m statefulset/simple-kafka-broker-default
+
+# Port-forward Kafka broker in background
+$pf = Start-Job { kubectl port-forward svc/simple-kafka-broker-default-bootstrap 9092:9092 > $null 2>&1 }
+Start-Sleep -Seconds 3
+```
+
+7. Create two topic:
+```
+kubectl exec -it simple-kafka-broker-default-0 -c kafka -- `
+  bin/kafka-topics.sh --create `
+  --bootstrap-server localhost:9092 `
+  --topic game_info `
+  --partitions 3 `
+  --replication-factor 1
+
+kubectl exec -it simple-kafka-broker-default-0 -c kafka -- `
+  bin/kafka-topics.sh --create `
+  --bootstrap-server localhost:9092 `
+  --topic game_comments `
+  --partitions 3 `
+  --replication-factor 1
+
+```
+
+8. Produce data to kafka:
+```
+docker build -t steam-producer:latest .
+kubectl apply -f steam-job.yaml
+```
+
+9. Read data from kafka to spark
+```
+kubectl apply -f test.yaml
+kubectl apply -f spark-test-app.yaml
 ```
