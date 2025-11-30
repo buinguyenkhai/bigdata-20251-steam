@@ -1,14 +1,3 @@
-#!/usr/bin/env python3
-"""
-steam_to_kafka.py
-
-Fetch Steam search/app details and reviews, send to Kafka topics:
- - game_info
- - game_comments
-
-Uses confluent-kafka Producer.
-"""
-
 import time
 import json
 import re
@@ -186,7 +175,6 @@ def flatten_appdetail_record(item):
     We use appdetail.data as source (if present). The uploaded hierarchy lists many available fields (developers, genres, price_overview, platforms, release_date, etc).
     See uploaded hierarchy reference for full structure.
     """
-    
     appdetail = item.get("appdetail", {})
     data = appdetail.get("data", {}) if isinstance(appdetail, dict) else {}
 
@@ -236,8 +224,6 @@ def process_toplist_and_send(params_list, page_list):
                 if not appid:
                     print_log("Skipping item without appid:", item.get("name"))
                     continue
-
-                print_log(f"Loading game: {item.get('name')} (AppID={appid})")
 
                 appdetails = get_app_details(appid)
                 item["appdetail"] = appdetails
