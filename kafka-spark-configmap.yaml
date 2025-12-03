@@ -9,13 +9,21 @@ data:
     from pyspark.sql.functions import col, from_json, avg, count, sum
     from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType, BooleanType
 
+    # Truststore is created by initContainer
+    truststore = "/truststore/truststore.p12"
+    if not os.path.exists(truststore):
+        print(f"ERROR: Truststore not found at {truststore}")
+        truststore = None
+    else:
+        print(f"Using truststore at {truststore}")
+
     spark = SparkSession.builder.appName("SteamReviews").getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
 
-    bootstrap = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "simple-kafka-broker-default-bootstrap.default.svc.cluster.local:9092")
-    topic = "game_comments"  # Matches producer topic
+    bootstrap = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "simple-kafka-broker-default-bootstrap.default.svc.cluster.local:9093")
+    topic = "game_comments"
+    security_protocol = os.environ.get("KAFKA_SECURITY_PROTOCOL", "SSL")
 
-    # Schema matching steam_to_kafka.py output for game_comments
     schema = StructType([
         StructField("app_id", IntegerType(), True),
         StructField("review_id", IntegerType(), True),
@@ -31,21 +39,29 @@ data:
         StructField("votes_funny", IntegerType(), True)
     ])
     
-    # Read Kafka
-    raw_df = spark.readStream.format("kafka").option("kafka.bootstrap.servers", bootstrap).option("subscribe", topic).option("startingOffsets", "earliest").load()
+    # Build Kafka reader with SSL
+    reader = (spark.readStream.format("kafka")
+        .option("kafka.bootstrap.servers", bootstrap)
+        .option("subscribe", topic)
+        .option("startingOffsets", "earliest")
+        .option("kafka.security.protocol", security_protocol)
+        .option("kafka.ssl.endpoint.identification.algorithm", ""))
+    
+    if truststore and os.path.exists(truststore):
+        reader = reader.option("kafka.ssl.truststore.location", truststore)
+        reader = reader.option("kafka.ssl.truststore.type", "PKCS12")
+        reader = reader.option("kafka.ssl.truststore.password", "changeit")
+    
+    raw_df = reader.load()
     parsed_df = raw_df.select(from_json(col("value").cast("string"), schema).alias("data"), col("timestamp").alias("ingest_time")).select("data.*", "ingest_time")
 
-    # Simple sentiment analysis
     analytics_df = parsed_df.groupBy("recommended").agg(
         count("review_id").alias("total_reviews"),
         avg("weighted_vote_score").alias("avg_quality_score"),
         sum("votes_up").alias("total_helpful_votes")
     )
 
-    # Cold sink(HDFS, for archiving purposes)
     query_cold = parsed_df.writeStream.format("parquet").option("path", "/user/stackable/archive/reviews").option("checkpointLocation", "/user/stackable/checkpoints/reviews_cold").outputMode("append").start()
-
-    # Hot sink(MongoDB, for aggregated analytics, source of dashboard)
     query_hot = analytics_df.writeStream.format("mongodb").option("checkpointLocation", "/user/stackable/checkpoints/reviews_hot").outputMode("complete").start()
 
     spark.streams.awaitAnyTermination()
@@ -56,46 +72,62 @@ data:
     from pyspark.sql.functions import col, from_json, max, min, avg, count
     from pyspark.sql.types import StructType, StructField, StringType, IntegerType
 
+    # Truststore is created by initContainer
+    truststore = "/truststore/truststore.p12"
+    if not os.path.exists(truststore):
+        print(f"ERROR: Truststore not found at {truststore}")
+        truststore = None
+    else:
+        print(f"Using truststore at {truststore}")
+
     spark = SparkSession.builder.appName("SteamCharts").getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
 
-    bootstrap = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "simple-kafka-broker-default-bootstrap.default.svc.cluster.local:9092")
-    topic = "game_info"  # Matches producer topic
+    bootstrap = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "simple-kafka-broker-default-bootstrap.default.svc.cluster.local:9093")
+    topic = "game_info"
+    security_protocol = os.environ.get("KAFKA_SECURITY_PROTOCOL", "SSL")
 
-    # Schema matching steam_to_kafka.py output for game_info (all fields)
     schema = StructType([
         StructField("name", StringType(), True),
         StructField("appid", IntegerType(), True),
         StructField("type", StringType(), True),
         StructField("short_description", StringType(), True),
-        StructField("developers", StringType(), True),      # JSON array as string
-        StructField("publishers", StringType(), True),      # JSON array as string
-        StructField("genres", StringType(), True),          # JSON array as string
-        StructField("price_overview", StringType(), True),  # JSON object as string
-        StructField("platforms", StringType(), True),       # JSON object as string
+        StructField("developers", StringType(), True),
+        StructField("publishers", StringType(), True),
+        StructField("genres", StringType(), True),
+        StructField("price_overview", StringType(), True),
+        StructField("platforms", StringType(), True),
         StructField("header_image", StringType(), True),
-        StructField("release_date", StringType(), True),    # JSON object as string
-        StructField("recommendations", StringType(), True), # JSON object as string
-        StructField("achievements", StringType(), True),    # JSON object as string
+        StructField("release_date", StringType(), True),
+        StructField("recommendations", StringType(), True),
+        StructField("achievements", StringType(), True),
         StructField("screenshots_count", IntegerType(), True),
         StructField("movies_count", IntegerType(), True),
         StructField("timestamp", StringType(), True)
     ])
 
-    # Read Kafka
-    raw_df = spark.readStream.format("kafka").option("kafka.bootstrap.servers", bootstrap).option("subscribe", topic).option("startingOffsets", "earliest").load()
+    # Build Kafka reader with SSL
+    reader = (spark.readStream.format("kafka")
+        .option("kafka.bootstrap.servers", bootstrap)
+        .option("subscribe", topic)
+        .option("startingOffsets", "earliest")
+        .option("kafka.security.protocol", security_protocol)
+        .option("kafka.ssl.endpoint.identification.algorithm", ""))
+    
+    if truststore and os.path.exists(truststore):
+        reader = reader.option("kafka.ssl.truststore.location", truststore)
+        reader = reader.option("kafka.ssl.truststore.type", "PKCS12")
+        reader = reader.option("kafka.ssl.truststore.password", "changeit")
+    
+    raw_df = reader.load()
     parsed_df = raw_df.select(from_json(col("value").cast("string"), schema).alias("data")).select("data.*")
 
-    # Game info analytics - group by type and count games
     analytics_df = parsed_df.groupBy("type").agg(
         count("appid").alias("total_games"),
         count("name").alias("games_with_names")
     )
 
-    # Cold sink(HDFS)
     query_cold = parsed_df.writeStream.format("parquet").option("path", "/user/stackable/archive/charts").option("checkpointLocation", "/user/stackable/checkpoints/charts_cold").outputMode("append").start()
-
-    # Hot sink(MongoDB)
     query_hot = analytics_df.writeStream.format("mongodb").option("checkpointLocation", "/user/stackable/checkpoints/charts_hot").outputMode("complete").start()
 
     spark.streams.awaitAnyTermination()

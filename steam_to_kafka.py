@@ -12,6 +12,11 @@ TOPIC_GAME_COMMENTS = os.getenv("TOPIC_GAME_COMMENTS", "game_comments")
 FILTERS_ENV = os.getenv("FILTERS", "topsellers")
 PAGE_LIST_ENV = os.getenv("PAGE_LIST", "1")
 
+# SSL/TLS configuration
+KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", "PLAINTEXT")
+KAFKA_SSL_CA_LOCATION = os.getenv("KAFKA_SSL_CA_LOCATION", "")
+KAFKA_SSL_TRUSTSTORE_LOCATION = os.getenv("KAFKA_SSL_TRUSTSTORE_LOCATION", "")
+
 # Search params
 PARAMS_SR_DEFAULT = {
     "filter": "topsellers",
@@ -20,12 +25,20 @@ PARAMS_SR_DEFAULT = {
     "json": 1
 }
 
-# Producer setup
+# Producer setup with optional SSL
 producer_conf = {
     "bootstrap.servers": BOOTSTRAP_SERVERS,
     "client.id": "steam-producer",
     "linger.ms": 5,
 }
+
+# Add SSL configuration if enabled
+if KAFKA_SECURITY_PROTOCOL == "SSL":
+    producer_conf["security.protocol"] = "SSL"
+    # For self-signed certs in test environment, disable certificate verification
+    producer_conf["ssl.endpoint.identification.algorithm"] = "none"
+    producer_conf["enable.ssl.certificate.verification"] = "false"
+
 producer = Producer(producer_conf)
 
 delivery_stats = {"success": 0, "failed": 0, "last_error": None}
@@ -253,6 +266,9 @@ if __name__ == "__main__":
 
     print_log("Starting Steam -> Kafka pipeline")
     print_log(f"  Bootstrap servers: {BOOTSTRAP_SERVERS}")
+    print_log(f"  Security protocol: {KAFKA_SECURITY_PROTOCOL}")
+    if KAFKA_SECURITY_PROTOCOL == "SSL":
+        print_log(f"  SSL Truststore: {KAFKA_SSL_TRUSTSTORE_LOCATION}")
     print_log(f"  Topics: {TOPIC_GAME_INFO}, {TOPIC_GAME_COMMENTS}")
     print_log(f"  Filters: {[p['filter'] for p in PARAMS_LIST]}")
     print_log(f"  Pages: {PAGE_LIST}")

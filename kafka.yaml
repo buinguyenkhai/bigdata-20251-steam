@@ -8,13 +8,16 @@ spec:
     productVersion: 3.9.1
   clusterConfig:
     tls:
-      serverSecretClass: null
-      internalSecretClass: null
+      serverSecretClass: tls  # Use Stackable's default TLS
+      internalSecretClass: tls
     zookeeperConfigMapName: simple-kafka-znode
   brokers:
-    config:
-      bootstrapListenerClass: external-unstable
-      brokerListenerClass: external-unstable
     roleGroups:
       default:
-        replicas: 1 # 3 is recommended for production, 1 for testing
+        replicas: 1
+        config:
+          resources:
+            memory:
+              limit: 1Gi
+            cpu:
+              max: "1"

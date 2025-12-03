@@ -33,7 +33,7 @@ spec:
 
   env:
     - name: KAFKA_BOOTSTRAP_SERVERS
-      value: "simple-kafka-broker-default-bootstrap.default.svc.cluster.local:9092"
+      value: "simple-kafka-broker-default-bootstrap.default.svc.cluster.local:9093"
     - name: KAFKA_TOPIC
       value: "test-topic"
 

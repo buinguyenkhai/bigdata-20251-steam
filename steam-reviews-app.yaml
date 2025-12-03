@@ -29,18 +29,87 @@ spec:
     spark.mongodb.write.connection.uri: "mongodb://mongodb.default.svc.cluster.local:27017/game_analytics.steam_reviews"
   env:
     - name: KAFKA_BOOTSTRAP_SERVERS
-      value: "simple-kafka-broker-default-bootstrap.default.svc.cluster.local:9092"
+      value: "simple-kafka-broker-default-bootstrap.default.svc.cluster.local:9093"
+    - name: KAFKA_SECURITY_PROTOCOL
+      value: "SSL"
+    - name: KAFKA_SSL_TRUSTSTORE
+      value: "/stackable/tls/truststore.p12"
   volumes:
     - name: analytics-scripts
       configMap:
         name: kafka-spark-configmap
+    - name: tls
+      ephemeral:
+        volumeClaimTemplate:
+          metadata:
+            annotations:
+              secrets.stackable.tech/class: tls
+              secrets.stackable.tech/scope: pod
+          spec:
+            storageClassName: secrets.stackable.tech
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: "1"
+    - name: truststore-vol
+      emptyDir: {}
   driver:
     config:
       volumeMounts:
         - name: analytics-scripts 
           mountPath: /opt/spark/work-dir
+        - name: tls
+          mountPath: /stackable/tls
+        - name: truststore-vol
+          mountPath: /truststore
+    podOverrides:
+      spec:
+        initContainers:
+          - name: create-truststore
+            image: eclipse-temurin:17-jdk
+            command:
+              - sh
+              - -c
+              - |
+                echo "Creating truststore from CA certificate..."
+                keytool -import -trustcacerts -noprompt \
+                  -alias ca -file /stackable/tls/ca.crt \
+                  -keystore /truststore/truststore.p12 \
+                  -storetype PKCS12 -storepass changeit
+                echo "Truststore created at /truststore/truststore.p12"
+                ls -la /truststore/
+            volumeMounts:
+              - name: tls
+                mountPath: /stackable/tls
+              - name: truststore-vol
+                mountPath: /truststore
   executor:
     config:
       volumeMounts:
         - name: analytics-scripts
           mountPath: /opt/spark/work-dir
+        - name: tls
+          mountPath: /stackable/tls
+        - name: truststore-vol
+          mountPath: /truststore
+    podOverrides:
+      spec:
+        initContainers:
+          - name: create-truststore
+            image: eclipse-temurin:17-jdk
+            command:
+              - sh
+              - -c
+              - |
+                echo "Creating truststore from CA certificate..."
+                keytool -import -trustcacerts -noprompt \
+                  -alias ca -file /stackable/tls/ca.crt \
+                  -keystore /truststore/truststore.p12 \
+                  -storetype PKCS12 -storepass changeit
+                echo "Truststore created at /truststore/truststore.p12"
+            volumeMounts:
+              - name: tls
+                mountPath: /stackable/tls
+              - name: truststore-vol
+                mountPath: /truststore

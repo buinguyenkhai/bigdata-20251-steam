@@ -8,6 +8,8 @@ data:
   TOPIC_GAME_COMMENTS: "game_comments"
   FILTERS: "topsellers"
   PAGE_LIST: "1"
+  KAFKA_SECURITY_PROTOCOL: "SSL"
+  KAFKA_SSL_TRUSTSTORE_LOCATION: "/stackable/tls/truststore.p12"
 
 ---
 apiVersion: batch/v1
@@ -19,10 +21,28 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      volumes:
+        - name: tls
+          ephemeral:
+            volumeClaimTemplate:
+              metadata:
+                annotations:
+                  secrets.stackable.tech/class: tls
+                  secrets.stackable.tech/scope: pod
+              spec:
+                storageClassName: secrets.stackable.tech
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: "1"
       containers:
         - name: steam-producer
           image: steam-producer:latest
           imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: tls
+              mountPath: /stackable/tls
           env:
             - name: BOOTSTRAP_SERVERS
               valueFrom:
@@ -49,6 +69,16 @@ spec:
                 configMapKeyRef:
                   name: steam-producer-config
                   key: PAGE_LIST
+            - name: KAFKA_SECURITY_PROTOCOL
+              valueFrom:
+                configMapKeyRef:
+                  name: steam-producer-config
+                  key: KAFKA_SECURITY_PROTOCOL
+            - name: KAFKA_SSL_TRUSTSTORE_LOCATION
+              valueFrom:
+                configMapKeyRef:
+                  name: steam-producer-config
+                  key: KAFKA_SSL_TRUSTSTORE_LOCATION
           resources:
             requests:
               cpu: 200m

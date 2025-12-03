@@ -42,13 +42,18 @@ This pipeline follows the **Kappa Architecture** pattern - a single streaming pa
 ## Technology Stack
 
 | Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
+|-----------|------------|---------|----------|
 | Orchestration | Kubernetes + Stackable | 25.7.0 | Container orchestration |
 | Coordination | Apache Zookeeper | 3.9.3 | Distributed coordination |
-| Messaging | Apache Kafka | 3.9.1 | Stream buffering |
+| Messaging | Apache Kafka | 3.9.1 | Stream buffering (TLS encrypted) |
 | Processing | Apache Spark | 3.5.6 | Structured Streaming |
-| Cold Storage | Apache HDFS | 3.4.1 | Parquet archival |
+| Cold Storage | Apache HDFS | 3.4.1 | Parquet archival (HA mode) |
 | Hot Storage | MongoDB | 7.0 | Real-time analytics |
+
+### Security
+- **Kafka TLS**: All Kafka connections use SSL/TLS encryption (port 9093)
+- **Stackable Secret Operator**: Automatic certificate management via ephemeral volumes
+- **HDFS HA**: High Availability with 2 NameNodes and automatic failover
 
 ## Installation (Windows)
 
@@ -108,21 +113,23 @@ This single command will:
 # 1. Deploy MongoDB
 kubectl apply -f mongodb.yaml
 
-# 2. Create Kafka topics
+# 2. Create Kafka topics (using internal port 9092)
 kubectl exec -it simple-kafka-broker-default-0 -c kafka -- bin/kafka-topics.sh `
   --create --bootstrap-server localhost:9092 --topic game_info --partitions 3 --replication-factor 1
 kubectl exec -it simple-kafka-broker-default-0 -c kafka -- bin/kafka-topics.sh `
   --create --bootstrap-server localhost:9092 --topic game_comments --partitions 3 --replication-factor 1
 
-# 3. Build and run Steam producer
+# 3. Build and run Steam producer (connects via TLS on port 9093)
 docker build -t steam-producer:latest .
 kubectl apply -f steam-job.yaml
 
-# 4. Deploy Spark streaming apps
+# 4. Deploy Spark streaming apps (with TLS truststore init containers)
 kubectl apply -f kafka-spark-configmap.yaml
 kubectl apply -f steam-charts-app.yaml
 kubectl apply -f steam-reviews-app.yaml
 ```
+
+> **Note**: Spark apps use init containers to create PKCS12 truststores from Stackable's PEM certificates for Kafka TLS connections.
 
 ### 5. Monitor & Verify
 ```powershell
@@ -221,11 +228,20 @@ This comprehensive test validates the entire data pipeline:
 ### Environment Variables (Producer)
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker address |
+| `BOOTSTRAP_SERVERS` | `simple-kafka-broker-default-bootstrap:9093` | Kafka broker address (TLS) |
+| `KAFKA_SECURITY_PROTOCOL` | `SSL` | Kafka security protocol |
+| `KAFKA_SSL_CA_LOCATION` | `/stackable/tls/ca.crt` | CA certificate path |
 | `TOPIC_GAME_INFO` | `game_info` | Topic for game metadata |
 | `TOPIC_GAME_COMMENTS` | `game_comments` | Topic for reviews |
 | `FILTERS` | `topsellers` | Steam search filters |
 | `PAGE_LIST` | `1` | Pages to fetch |
+
+### Environment Variables (Spark Apps)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KAFKA_BOOTSTRAP_SERVERS` | `simple-kafka-broker-default-bootstrap:9093` | Kafka broker (TLS) |
+| `KAFKA_SECURITY_PROTOCOL` | `SSL` | Kafka security protocol |
+| `KAFKA_SSL_TRUSTSTORE` | `/truststore/truststore.p12` | PKCS12 truststore path |
 
 ### MongoDB Authentication (Production)
 ```powershell
@@ -249,14 +265,20 @@ kubectl logs <pod-name>             # View logs
 
 ### Kafka issues
 ```powershell
-# List topics
+# List topics (internal connection uses port 9092)
 kubectl exec simple-kafka-broker-default-0 -c kafka -- `
   bin/kafka-topics.sh --list --bootstrap-server localhost:9092
 
 # Check consumer groups
 kubectl exec simple-kafka-broker-default-0 -c kafka -- `
   bin/kafka-consumer-groups.sh --list --bootstrap-server localhost:9092
+
+# Check topic offsets
+kubectl exec simple-kafka-broker-default-0 -c kafka -- `
+  bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list localhost:9092 --topic game_info
 ```
+
+> **Note**: Internal Kafka commands use port 9092. External/TLS connections use port 9093.
 
 ### HDFS issues
 ```powershell
@@ -274,12 +296,47 @@ kubectl logs -l spark-role=driver --tail=100
 
 # Check executor logs
 kubectl logs -l spark-role=executor --tail=50
+
+# Check init container logs (truststore creation)
+kubectl logs <driver-pod-name> -c create-truststore
+
+# Verify truststore was created
+kubectl exec <driver-pod-name> -- ls -la /truststore/
+```
+
+### TLS/SSL issues
+```powershell
+# Check if TLS volume is mounted
+kubectl exec <pod-name> -- ls -la /stackable/tls/
+
+# Expected files: ca.crt, tls.crt, tls.key
+
+# Verify truststore creation in init container
+kubectl logs <spark-driver-pod> -c create-truststore
 ```
 
 ### Full Reset
 ```powershell
 .\test\start.ps1    # This will teardown and redeploy infrastructure
 ```
+
+## Known Considerations
+
+### First-Run Performance
+- **Spark startup**: First run takes 3-5 minutes as Maven dependencies are downloaded
+- **Producer runtime**: Fetching data from Steam API for ~25 games takes 5-10 minutes
+- Subsequent runs are faster due to cached dependencies
+
+### Resource Requirements
+- **Minimum**: 8GB RAM, 4 CPU cores for Docker Desktop
+- **Recommended**: 16GB RAM for smooth operation
+- HDFS HA mode requires 2 NameNodes + 3 DataNodes + 3 JournalNodes
+
+### TLS Certificate Handling
+Stackable 25.7.0 enforces TLS for Kafka by default. The pipeline handles this via:
+1. Ephemeral TLS volumes mounted from Stackable Secret Operator
+2. Init containers that convert PEM certificates to PKCS12 truststores
+3. Spark apps configured with SSL truststore settings
 
 ## License
 MIT
