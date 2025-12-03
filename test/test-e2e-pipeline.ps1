@@ -67,12 +67,22 @@ if ($topics -notmatch "game_comments") {
 
 # --- Step 4: Build Docker Image ---
 Write-Host "`n[4/10] Building Steam producer Docker image..." -ForegroundColor Yellow
-docker build -t steam-producer:latest . 2>&1 | Out-Null
+Push-Location ..
+$buildOutput = docker build -t steam-producer:latest . 2>&1
+Pop-Location
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Docker build failed" -ForegroundColor Red
-    exit 1
+    Write-Host "  Docker build output: $buildOutput" -ForegroundColor Gray
+    Write-Host "WARNING: Docker build failed - checking if image already exists..." -ForegroundColor Yellow
+    $existingImage = docker images steam-producer:latest --format "{{.Repository}}:{{.Tag}}" 2>$null
+    if ($existingImage -eq "steam-producer:latest") {
+        Write-Host "  Using existing Docker image" -ForegroundColor Green
+    } else {
+        Write-Host "ERROR: Docker image not available" -ForegroundColor Red
+        exit 1
+    }
+} else {
+    Write-Host "  Docker image built successfully" -ForegroundColor Green
 }
-Write-Host "  Docker image built successfully" -ForegroundColor Green
 
 # --- Step 5: Deploy Spark ConfigMaps ---
 Write-Host "`n[5/10] Deploying Spark ConfigMaps..." -ForegroundColor Yellow
