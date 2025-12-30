@@ -1,4 +1,4 @@
-Write-Host "--- Deleting all components... ---" -ForegroundColor Cyan
+﻿Write-Host "--- Deleting all components... ---" -ForegroundColor Cyan
 
 # 1. Delete Spark App and Configs
 kubectl delete -f kafka-test-app.yaml --ignore-not-found

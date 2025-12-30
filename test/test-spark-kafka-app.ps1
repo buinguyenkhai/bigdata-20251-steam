@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 Write-Host "=== Spark Kafka Streaming Test ===" -ForegroundColor Cyan
 
