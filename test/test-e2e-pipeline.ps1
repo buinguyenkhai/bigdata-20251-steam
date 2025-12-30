@@ -176,8 +176,8 @@ if ($mongoPod) {
     # Handle multi-line output - take last non-empty line and extract number
     $chartsDocsLine = ($chartsDocsRaw | Where-Object { $_ -match '\d+' } | Select-Object -Last 1) -replace '\D', ''
     $reviewsDocsLine = ($reviewsDocsRaw | Where-Object { $_ -match '\d+' } | Select-Object -Last 1) -replace '\D', ''
-    $chartsDocs = if ($chartsDocsLine) { [int]$chartsDocsLine } else { 0 }
-    $reviewsDocs = if ($reviewsDocsLine) { [int]$reviewsDocsLine } else { 0 }
+    if ($chartsDocsLine) { $chartsDocs = [int]$chartsDocsLine } else { $chartsDocs = 0 }
+    if ($reviewsDocsLine) { $reviewsDocs = [int]$reviewsDocsLine } else { $reviewsDocs = 0 }
     
     if ($chartsDocs -gt 0) {
         Write-Host "    ✓ steam_charts: $chartsDocs aggregated documents" -ForegroundColor Green
