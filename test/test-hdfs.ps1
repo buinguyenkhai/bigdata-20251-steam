@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 Write-Host "=== HDFS Read/Write Test ===" -ForegroundColor Cyan
 
@@ -69,9 +69,9 @@ Write-Host "  Removed test file" -ForegroundColor Gray
 
 Write-Host "`n============================================" -ForegroundColor Cyan
 if ($success) {
-    Write-Host "  ✓ HDFS TEST PASSED" -ForegroundColor Green
+    Write-Host "  [PASS] HDFS TEST PASSED" -ForegroundColor Green
     exit 0
 } else {
-    Write-Host "  ✗ HDFS TEST FAILED" -ForegroundColor Red
+    Write-Host "  [FAIL] HDFS TEST FAILED" -ForegroundColor Red
     exit 1
 }
