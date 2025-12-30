@@ -89,9 +89,10 @@ $nn0Status = kubectl exec simple-hdfs-namenode-default-0 -- hdfs haadmin -getSer
 if ($nn0Status -match "standby") {
     $activeNamenode = "simple-hdfs-namenode-default-1"
 }
-$namenodeUrl = "http://${activeNamenode}.simple-hdfs-namenode-default.default.svc.cluster.local:9870"
+$namenodeUrl = "http://" + $activeNamenode + ".simple-hdfs-namenode-default.default.svc.cluster.local:9870"
 
-$hdfsOutput = kubectl exec webhdfs-0 -- curl -s "${namenodeUrl}/webhdfs/v1/user/stackable/test-output?op=LISTSTATUS&user.name=stackable" 2>$null
+$listStatusUrl = $namenodeUrl + "/webhdfs/v1/user/stackable/test-output?op=LISTSTATUS&user.name=stackable"
+$hdfsOutput = kubectl exec webhdfs-0 -- curl -s $listStatusUrl 2>$null
 
 if ($hdfsOutput -match "pathSuffix.*\.txt") {
     Write-Host "Output files found in HDFS!" -ForegroundColor Green
@@ -101,7 +102,8 @@ if ($hdfsOutput -match "pathSuffix.*\.txt") {
     
     Write-Host "`n--- Output Content (should be UPPERCASE) ---" -ForegroundColor Cyan
     foreach ($file in $files | Select-Object -Last 5) {
-        $content = kubectl exec webhdfs-0 -- curl -sL "${namenodeUrl}/webhdfs/v1/user/stackable/test-output/$($file.pathSuffix)?op=OPEN&user.name=stackable" 2>$null
+        $openUrl = $namenodeUrl + "/webhdfs/v1/user/stackable/test-output/" + $file.pathSuffix + "?op=OPEN&user.name=stackable"
+        $content = kubectl exec webhdfs-0 -- curl -sL $openUrl 2>$null
         if ($content) {
             Write-Host "  $content"
         }
@@ -110,7 +112,8 @@ if ($hdfsOutput -match "pathSuffix.*\.txt") {
     
     # Verify uppercase conversion
     $allContent = $files | ForEach-Object {
-        kubectl exec webhdfs-0 -- curl -sL "${namenodeUrl}/webhdfs/v1/user/stackable/test-output/$($_.pathSuffix)?op=OPEN&user.name=stackable" 2>$null
+        $openUrl = $namenodeUrl + "/webhdfs/v1/user/stackable/test-output/" + $_.pathSuffix + "?op=OPEN&user.name=stackable"
+        kubectl exec webhdfs-0 -- curl -sL $openUrl 2>$null
     }
     
     $hasUppercase = $allContent | Where-Object { $_ -cmatch "^[A-Z\s]+$" }
