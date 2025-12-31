@@ -7,11 +7,11 @@ $kafkaStatus = kubectl get pods -l app.kubernetes.io/name=kafka -o jsonpath='{.i
 $hdfsStatus = kubectl get pods -l app.kubernetes.io/name=hdfs,app.kubernetes.io/component=namenode -o jsonpath='{.items[0].status.phase}' 2>$null
 
 if ($kafkaStatus -ne "Running") {
-    Write-Host "ERROR: Kafka not running. Run .\test\start.ps1 first." -ForegroundColor Red
+    Write-Host "ERROR: Kafka not running. Run .\test\reset-all.ps1 first." -ForegroundColor Red
     exit 1
 }
 if ($hdfsStatus -ne "Running") {
-    Write-Host "ERROR: HDFS not running. Run .\test\start.ps1 first." -ForegroundColor Red
+    Write-Host "ERROR: HDFS not running. Run .\test\reset-all.ps1 first." -ForegroundColor Red
     exit 1
 }
 Write-Host "  Kafka: Running" -ForegroundColor Green

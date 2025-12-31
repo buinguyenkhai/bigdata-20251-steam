@@ -5,7 +5,7 @@ Write-Host "=== Kafka Produce/Consume Test ===" -ForegroundColor Cyan
 Write-Host "`n[1/5] Checking Kafka broker..." -ForegroundColor Yellow
 $kafkaPod = kubectl get pods -l app.kubernetes.io/name=kafka -o jsonpath='{.items[0].status.phase}' 2>$null
 if ($kafkaPod -ne "Running") {
-    Write-Host "ERROR: Kafka broker not running. Run .\test\start.ps1 first." -ForegroundColor Red
+    Write-Host "ERROR: Kafka broker not running. Run .\test\reset-all.ps1 first." -ForegroundColor Red
     exit 1
 }
 Write-Host "  Kafka broker is running" -ForegroundColor Green

@@ -81,12 +81,19 @@ helm install --wait spark-k8s-operator oci://oci.stackable.tech/sdp-charts/spark
 
 ## Quick Start
 
-### 1. Deploy Infrastructure
+### First Time Setup
+
+#### 1. Deploy Infrastructure
 ```powershell
-.\test\start.ps1   # Deploys Zookeeper, Kafka, HDFS (~3-5 minutes)
+.\test\reset-all.ps1   # Full reset: wipes and redeploys Zookeeper, Kafka, HDFS (~3-5 minutes)
 ```
 
-### 2. Run End-to-End Pipeline Test (Recommended)
+#### 2. Build Steam Producer Image
+```powershell
+docker build -t steam-producer:latest .
+```
+
+#### 3. Run End-to-End Pipeline Test
 ```powershell
 .\test\test-e2e-pipeline.ps1   # Full pipeline test (~5-10 minutes)
 ```
@@ -95,10 +102,25 @@ This single command will:
 - Verify infrastructure (Zookeeper, Kafka, HDFS)
 - Deploy MongoDB (hot storage)
 - Create Kafka topics (`game_info`, `game_comments`)
-- Build Docker image for producer
+- Use existing Docker image (skips build if present)
 - Deploy Spark streaming apps
 - Run Steam producer (fetches live data from Steam API)
 - Verify data in HDFS and MongoDB
+
+---
+
+### Daily Usage (Stop & Resume)
+
+To save memory and avoid re-pulling images:
+
+| Scenario | Command | Description |
+|----------|---------|-------------|
+| **Stop work** | `.\test\stop-pipeline.ps1` | Gracefully stop (preserves data & images) |
+| **Resume work** | `.\test\resume-pipeline.ps1` | Restart pods using cached images |
+| **Run pipeline** | `.\test\test-e2e-pipeline.ps1` | Uses existing Docker image (skips build) |
+| **Full reset** | `.\test\reset-all.ps1` | Complete wipe and redeploy (only when needed) |
+
+> **Tip**: Use `stop-pipeline.ps1` when you're done working. It preserves all data (MongoDB, HDFS) and cached Docker images, so resuming is fast (~2-3 minutes vs ~5-10 minutes for full setup).
 
 ### 3. Run Individual Component Tests (For Debugging)
 ```powershell
@@ -176,7 +198,9 @@ kubectl port-forward svc/mongodb 27017:27017
 │   ├── charts/
 │   └── reviews/
 └── test/                       # Test scripts
-    ├── start.ps1               # Deploy infrastructure
+    ├── reset-all.ps1           # Full reset (wipes data, redeploys infrastructure)
+    ├── stop-pipeline.ps1       # Gracefully stop (preserves data & images)
+    ├── resume-pipeline.ps1     # Resume from stopped state (no re-pull)
     ├── test-hdfs.ps1           # HDFS connectivity test
     ├── test-kafka.ps1          # Kafka produce/consume test
     ├── test-spark-kafka-app.ps1
@@ -187,6 +211,8 @@ kubectl port-forward svc/mongodb 27017:27017
 
 ### End-to-End Pipeline Test (Recommended)
 ```powershell
+.\test\reset-all.ps1
+docker build -t steam-producer:latest .
 .\test\test-e2e-pipeline.ps1
 ```
 
@@ -317,7 +343,7 @@ kubectl logs <spark-driver-pod> -c create-truststore
 
 ### Full Reset
 ```powershell
-.\test\start.ps1    # This will teardown and redeploy infrastructure
+.\test\reset-all.ps1    # This will teardown and redeploy infrastructure
 ```
 
 ## Known Considerations
@@ -330,7 +356,19 @@ kubectl logs <spark-driver-pod> -c create-truststore
 ### Resource Requirements
 - **Minimum**: 8GB RAM, 4 CPU cores for Docker Desktop
 - **Recommended**: 16GB RAM for smooth operation
-- HDFS HA mode requires 2 NameNodes + 3 DataNodes + 3 JournalNodes
+- HDFS HA mode requires 2 NameNodes + 1 DataNode + 1 JournalNode
+
+**Memory Optimization**: The pipeline includes resource limits:
+| Component | Memory Limit |
+|-----------|--------------|
+| ZooKeeper | 512Mi |
+| HDFS NameNodes (x2) | 512Mi each |
+| HDFS DataNode | 512Mi |
+| HDFS JournalNode | 256Mi |
+| MongoDB | 512Mi |
+| Kafka Broker | 1Gi |
+
+**Total estimated**: ~4-5GB for infrastructure
 
 ### TLS Certificate Handling
 Stackable 25.7.0 enforces TLS for Kafka by default. The pipeline handles this via:
