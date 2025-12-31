@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 Write-Host "=== Kafka Produce/Consume Test ===" -ForegroundColor Cyan
 
@@ -46,9 +46,9 @@ if ($consumed -match $testMessage) {
 Write-Host "`n[5/5] Test Summary" -ForegroundColor Yellow
 Write-Host "============================================" -ForegroundColor Cyan
 if ($success) {
-    Write-Host "  ✓ KAFKA TEST PASSED" -ForegroundColor Green
+    Write-Host "  [PASS] KAFKA TEST PASSED" -ForegroundColor Green
     exit 0
 } else {
-    Write-Host "  ✗ KAFKA TEST FAILED" -ForegroundColor Red
+    Write-Host "  [FAIL] KAFKA TEST FAILED" -ForegroundColor Red
     exit 1
 }

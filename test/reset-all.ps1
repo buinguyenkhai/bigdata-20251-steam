@@ -1,4 +1,4 @@
-Write-Host "--- Deleting all components... ---" -ForegroundColor Cyan
+﻿Write-Host "--- Deleting all components... ---" -ForegroundColor Cyan
 
 # 1. Delete Spark App and Configs
 kubectl delete -f kafka-test-app.yaml --ignore-not-found
@@ -28,7 +28,12 @@ kubectl delete pvc -l stackable.tech/vendor=stackable --ignore-not-found
 kubectl delete pvc -l app.kubernetes.io/managed-by=stackable --ignore-not-found
 
 # Also delete Kafka/HDFS/ZK data PVCs by name pattern (they may not have labels)
-kubectl get pvc --no-headers -o custom-columns=":metadata.name" | Where-Object { $_ -match "^(data-simple-|log-dirs-simple-|listener-simple-)" } | ForEach-Object { kubectl delete pvc $_ --ignore-not-found }
+$pvcs = kubectl get pvc --no-headers -o custom-columns=":metadata.name" 2>$null
+if ($pvcs) {
+    $pvcs | Where-Object { $_ -match "^(data-simple-|log-dirs-simple-|listener-simple-)" } | ForEach-Object {
+        kubectl delete pvc $_ --ignore-not-found 2>$null | Out-Null
+    }
+}
 
 # --- PART 3: DEPLOY FRESH (Start Again) ---
 Write-Host "--- Deploying fresh clusters... ---" -ForegroundColor Green
