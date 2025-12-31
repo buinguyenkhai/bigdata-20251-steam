@@ -95,20 +95,17 @@ Write-Host "  ConfigMaps deployed" -ForegroundColor Green
 
 # --- Step 4: Deploy Spark Apps (if not running) ---
 Write-Host "`n[4/4] Checking Spark apps..." -ForegroundColor Yellow
+
+# Temporarily set preference to Continue so "No resources found" doesn't crash the script
+$ErrorActionPreference = "Continue"
 $sparkApps = kubectl get sparkapplication 2>$null | Select-String "steam-"
+$ErrorActionPreference = "Stop"
+
 if (-not $sparkApps) {
     Write-Host "  Deploying Spark streaming apps..." -ForegroundColor Gray
-    kubectl apply -f steam-reviews-app.yaml 2>$null | Out-Null
-    kubectl apply -f steam-charts-app.yaml 2>$null | Out-Null
+    kubectl apply -f steam-reviews-app.yaml
+    kubectl apply -f steam-charts-app.yaml
     Write-Host "  Spark apps deployed (will download dependencies on first run)" -ForegroundColor Green
 } else {
     Write-Host "  Spark apps already exist" -ForegroundColor Green
 }
-
-Write-Host ""
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "   Pipeline RESUMED Successfully           " -ForegroundColor Cyan
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "To run the pipeline:" -ForegroundColor White
-Write-Host "  .\test\test-e2e-pipeline.ps1" -ForegroundColor Yellow
