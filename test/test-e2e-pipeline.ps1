@@ -1,4 +1,4 @@
-# test-e2e-pipeline.ps1
+﻿# test-e2e-pipeline.ps1
 # End-to-End Pipeline Test: Steam API → Kafka → Spark → HDFS + MongoDB
 $ErrorActionPreference = "Stop"
 
@@ -156,15 +156,15 @@ $chartsCount = ($hdfsCharts | Measure-Object).Count
 $reviewsCount = ($hdfsReviews | Measure-Object).Count
 
 if ($chartsCount -gt 0) {
-    Write-Host "    ✓ Charts data: $chartsCount parquet files" -ForegroundColor Green
+    Write-Host "    [OK] Charts data: $chartsCount parquet files" -ForegroundColor Green
 } else {
-    Write-Host "    ✗ Charts data: No files found" -ForegroundColor Red
+    Write-Host "    [FAIL] Charts data: No files found" -ForegroundColor Red
 }
 
 if ($reviewsCount -gt 0) {
-    Write-Host "    ✓ Reviews data: $reviewsCount parquet files" -ForegroundColor Green
+    Write-Host "    [OK] Reviews data: $reviewsCount parquet files" -ForegroundColor Green
 } else {
-    Write-Host "    ✗ Reviews data: No files found" -ForegroundColor Red
+    Write-Host "    [FAIL] Reviews data: No files found" -ForegroundColor Red
 }
 
 # Check MongoDB
@@ -176,22 +176,22 @@ if ($mongoPod) {
     # Handle multi-line output - take last non-empty line and extract number
     $chartsDocsLine = ($chartsDocsRaw | Where-Object { $_ -match '\d+' } | Select-Object -Last 1) -replace '\D', ''
     $reviewsDocsLine = ($reviewsDocsRaw | Where-Object { $_ -match '\d+' } | Select-Object -Last 1) -replace '\D', ''
-    $chartsDocs = if ($chartsDocsLine) { [int]$chartsDocsLine } else { 0 }
-    $reviewsDocs = if ($reviewsDocsLine) { [int]$reviewsDocsLine } else { 0 }
+    if ($chartsDocsLine) { $chartsDocs = [int]$chartsDocsLine } else { $chartsDocs = 0 }
+    if ($reviewsDocsLine) { $reviewsDocs = [int]$reviewsDocsLine } else { $reviewsDocs = 0 }
     
     if ($chartsDocs -gt 0) {
-        Write-Host "    ✓ steam_charts: $chartsDocs aggregated documents" -ForegroundColor Green
+        Write-Host "    [OK] steam_charts: $chartsDocs aggregated documents" -ForegroundColor Green
     } else {
-        Write-Host "    ✗ steam_charts: No documents found" -ForegroundColor Red
+        Write-Host "    [FAIL] steam_charts: No documents found" -ForegroundColor Red
     }
     
     if ($reviewsDocs -gt 0) {
-        Write-Host "    ✓ steam_reviews: $reviewsDocs aggregated documents" -ForegroundColor Green
+        Write-Host "    [OK] steam_reviews: $reviewsDocs aggregated documents" -ForegroundColor Green
     } else {
-        Write-Host "    ✗ steam_reviews: No documents found" -ForegroundColor Red
+        Write-Host "    [FAIL] steam_reviews: No documents found" -ForegroundColor Red
     }
 } else {
-    Write-Host "    ✗ MongoDB pod not found" -ForegroundColor Red
+    Write-Host "    [FAIL] MongoDB pod not found" -ForegroundColor Red
 }
 
 # --- Summary ---
@@ -223,10 +223,10 @@ if ($mongoPass) {
 
 Write-Host ""
 if ($hdfsPass -and $mongoPass) {
-    Write-Host "  ✓ END-TO-END TEST PASSED" -ForegroundColor Green
+    Write-Host "  [PASS] END-TO-END TEST PASSED" -ForegroundColor Green
     exit 0
 } else {
-    Write-Host "  ✗ END-TO-END TEST FAILED" -ForegroundColor Red
+    Write-Host "  [FAIL] END-TO-END TEST FAILED" -ForegroundColor Red
     Write-Host ""
     Write-Host "  Troubleshooting:" -ForegroundColor Yellow
     Write-Host "    - Check Spark driver logs: kubectl logs -l spark-role=driver --tail=50" -ForegroundColor Gray
