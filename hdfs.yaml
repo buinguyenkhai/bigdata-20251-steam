@@ -13,16 +13,32 @@ spec:
   nameNodes:
     config:
       listenerClass: external-stable
+      resources:
+        memory:
+          limit: 512Mi
+        cpu:
+          max: "0.5"
     roleGroups:
       default:
         replicas: 2
   dataNodes:
     config:
       listenerClass: external-unstable
+      resources:
+        memory:
+          limit: 512Mi
+        cpu:
+          max: "0.5"
     roleGroups:
       default:
         replicas: 1
   journalNodes:
+    config:
+      resources:
+        memory:
+          limit: 256Mi
+        cpu:
+          max: "0.25"
     roleGroups:
       default:
         replicas: 1
