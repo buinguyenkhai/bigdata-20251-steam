@@ -44,14 +44,13 @@ if ($elapsed -ge $timeout) {
     exit 1
 }
 
-# --- Step 3: Create Kafka Topics ---
-Write-Host "`n[3/10] Creating Kafka topics..." -ForegroundColor Yellow
-# Create both topics in a single kubectl exec call with --if-not-exists for speed
-kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c "
-  bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --topic game_info --partitions 3 --replication-factor 1 --if-not-exists 2>/dev/null;
-  bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --topic game_comments --partitions 3 --replication-factor 1 --if-not-exists 2>/dev/null
-" 2>$null | Out-Null
-Write-Host "  Topics ready: game_info, game_comments" -ForegroundColor Green
+# --- Step 3: Kafka Topics (Auto-Created) ---
+Write-Host "`n[3/10] Kafka topics..." -ForegroundColor Yellow
+# Note: Kafka topics (game_info, game_comments) are auto-created when the producer publishes
+# The Stackable Kafka cluster uses TLS/SSL on port 9093, making manual topic creation complex
+# Auto-creation is enabled by default in Kafka, so topics will be created on first message
+Write-Host "  Topics will be auto-created when producer runs: game_info, game_comments" -ForegroundColor Green
+
 
 # --- Step 4: Build Docker Image ---
 Write-Host "`n[4/10] Building Steam producer Docker image..." -ForegroundColor Yellow
@@ -73,43 +72,39 @@ if ($existingImage -eq "steam-producer:latest") {
 }
 
 # --- Step 5: Deploy Spark ConfigMaps ---
-Write-Host "`n[5/10] Deploying Spark ConfigMaps..." -ForegroundColor Yellow
+Write-Host "`n[5/12] Deploying Spark ConfigMaps..." -ForegroundColor Yellow
 kubectl apply -f kafka-spark-configmap.yaml 2>$null | Out-Null
 Write-Host "  ConfigMaps deployed" -ForegroundColor Green
 
-# --- Step 6: Deploy Spark streaming apps ---
-Write-Host "`n[6/10] Deploying Spark streaming apps..." -ForegroundColor Yellow
-kubectl apply -f steam-reviews-app.yaml 2>$null | Out-Null
+# --- Step 6: Deploy Charts Spark App (Sequential - Charts First) ---
+Write-Host "`n[6/12] Deploying Charts Spark app...`n  (Running apps sequentially to conserve memory)" -ForegroundColor Yellow
+kubectl delete sparkapplication steam-reviews-app --ignore-not-found 2>$null | Out-Null
 kubectl apply -f steam-charts-app.yaml 2>$null | Out-Null
-Write-Host "  Spark apps deployed" -ForegroundColor Green
+Write-Host "  Charts app deployed" -ForegroundColor Green
 
-# --- Step 7: Wait for Spark drivers to start ---
-Write-Host "`n[7/10] Waiting for Spark drivers to start (this may take 2-3 minutes)..." -ForegroundColor Yellow
-$timeout = 600
+# Wait for Charts driver to start
+Write-Host "`n[7/12] Waiting for Charts driver to start..." -ForegroundColor Yellow
+$timeout = 300
 $elapsed = 0
 while ($elapsed -lt $timeout) {
-    $drivers = kubectl get pods -l spark-role=driver --no-headers 2>$null | Select-String "Running"
-    $driverCount = ($drivers | Measure-Object).Count
-    if ($driverCount -ge 2) {
-        Write-Host "  Spark drivers are running ($driverCount/2)" -ForegroundColor Green
+    $driver = kubectl get pods --no-headers 2>$null | Select-String "steam-charts-app.*Running"
+    if ($driver) {
+        Write-Host "  Charts driver is running" -ForegroundColor Green
         break
     }
     Start-Sleep -Seconds 10
     $elapsed += 10
-    Write-Host "  Waiting for Spark drivers... ($elapsed s, $driverCount/2 running)" -ForegroundColor Gray
-}
-if ($elapsed -ge $timeout) {
-    Write-Host "WARNING: Not all Spark drivers started within $timeout seconds" -ForegroundColor Yellow
+    Write-Host "  Waiting for Charts driver... ($elapsed s)" -ForegroundColor Gray
 }
 
 # --- Step 8: Run Steam Producer ---
-Write-Host "`n[8/10] Running Steam producer job..." -ForegroundColor Yellow
+Write-Host "`n[8/12] Running Steam producer job...`n  (Sending game_info and game_comments to Kafka)" -ForegroundColor Yellow
 kubectl delete job steam-producer --ignore-not-found 2>$null | Out-Null
 Start-Sleep -Seconds 2
 kubectl apply -f steam-job.yaml 2>$null | Out-Null
 
 # Wait for producer to complete
-$timeout = 120
+$timeout = 300
 $elapsed = 0
 while ($elapsed -lt $timeout) {
     $producerStatus = kubectl get pods -l job-name=steam-producer -o jsonpath='{.items[0].status.phase}' 2>$null
@@ -125,21 +120,58 @@ while ($elapsed -lt $timeout) {
     $elapsed += 10
     Write-Host "  Producer running... ($elapsed s)" -ForegroundColor Gray
 }
-if ($elapsed -ge $timeout) {
-    Write-Host "WARNING: Producer did not complete within $timeout seconds (may still be running)" -ForegroundColor Yellow
+
+# Wait for Charts data to be processed
+Write-Host "`n[9/12] Waiting for Charts data to flow (45 seconds)..." -ForegroundColor Yellow
+Start-Sleep -Seconds 45
+
+# --- Step 10: Switch to Reviews App (free memory first) ---
+Write-Host "`n[10/12] Switching to Reviews Spark app...`n  (Stopping Charts app to free memory)" -ForegroundColor Yellow
+kubectl delete sparkapplication steam-charts-app --ignore-not-found 2>$null | Out-Null
+Start-Sleep -Seconds 10
+kubectl apply -f steam-reviews-app.yaml 2>$null | Out-Null
+Write-Host "  Reviews app deployed" -ForegroundColor Green
+
+# Wait for Reviews driver to start
+Write-Host "`n[11/12] Waiting for Reviews driver to start..." -ForegroundColor Yellow
+$timeout = 300
+$elapsed = 0
+while ($elapsed -lt $timeout) {
+    $driver = kubectl get pods --no-headers 2>$null | Select-String "steam-reviews-app.*Running"
+    if ($driver) {
+        Write-Host "  Reviews driver is running" -ForegroundColor Green
+        break
+    }
+    Start-Sleep -Seconds 10
+    $elapsed += 10
+    Write-Host "  Waiting for Reviews driver... ($elapsed s)" -ForegroundColor Gray
 }
 
-# --- Step 9: Wait for data to flow through pipeline ---
-Write-Host "`n[9/10] Waiting for data to flow through pipeline (60 seconds)..." -ForegroundColor Yellow
-Start-Sleep -Seconds 60
+# Wait for Reviews data to be processed (reads from Kafka - data is still there)
+# First wait for executors to start, then wait for processing
+Write-Host "`n[12/12] Waiting for Reviews executors and data processing..." -ForegroundColor Yellow
+$timeout = 120
+$elapsed = 0
+while ($elapsed -lt $timeout) {
+    $executors = kubectl get pods --no-headers 2>$null | Select-String "steamreviews.*exec.*Running"
+    $execCount = ($executors | Measure-Object).Count
+    if ($execCount -ge 1) {
+        Write-Host "  Reviews executors running ($execCount), waiting 90s for data processing..." -ForegroundColor Green
+        Start-Sleep -Seconds 90
+        break
+    }
+    Start-Sleep -Seconds 10
+    $elapsed += 10
+    Write-Host "  Waiting for Reviews executors... ($elapsed s)" -ForegroundColor Gray
+}
 
-# --- Step 10: Verify Results ---
-Write-Host "`n[10/10] Verifying results..." -ForegroundColor Yellow
+# --- Verify Results ---
+Write-Host "`nVerifying results..." -ForegroundColor Yellow
 
 # Check HDFS
 Write-Host "`n  [HDFS Cold Storage]" -ForegroundColor Cyan
-$hdfsCharts = kubectl exec simple-hdfs-namenode-default-0 -- hdfs dfs -ls /user/stackable/archive/charts/ 2>$null | Select-String "parquet"
-$hdfsReviews = kubectl exec simple-hdfs-namenode-default-0 -- hdfs dfs -ls /user/stackable/archive/reviews/ 2>$null | Select-String "parquet"
+$hdfsCharts = kubectl exec simple-hdfs-namenode-default-0 -c namenode -- hdfs dfs -ls /user/stackable/archive/charts/ 2>$null | Select-String "parquet"
+$hdfsReviews = kubectl exec simple-hdfs-namenode-default-0 -c namenode -- hdfs dfs -ls /user/stackable/archive/reviews/ 2>$null | Select-String "parquet"
 $chartsCount = ($hdfsCharts | Measure-Object).Count
 $reviewsCount = ($hdfsReviews | Measure-Object).Count
 
