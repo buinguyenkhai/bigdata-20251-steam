@@ -1,11 +1,11 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 Write-Host "=== Kafka Produce/Consume Test ===" -ForegroundColor Cyan
 
 Write-Host "`n[1/5] Checking Kafka broker..." -ForegroundColor Yellow
 $kafkaPod = kubectl get pods -l app.kubernetes.io/name=kafka -o jsonpath='{.items[0].status.phase}' 2>$null
 if ($kafkaPod -ne "Running") {
-    Write-Host "ERROR: Kafka broker not running. Run .\test\start.ps1 first." -ForegroundColor Red
+    Write-Host "ERROR: Kafka broker not running. Run .\test\reset-all.ps1 first." -ForegroundColor Red
     exit 1
 }
 Write-Host "  Kafka broker is running" -ForegroundColor Green
@@ -46,9 +46,9 @@ if ($consumed -match $testMessage) {
 Write-Host "`n[5/5] Test Summary" -ForegroundColor Yellow
 Write-Host "============================================" -ForegroundColor Cyan
 if ($success) {
-    Write-Host "  ✓ KAFKA TEST PASSED" -ForegroundColor Green
+    Write-Host "  [PASS] KAFKA TEST PASSED" -ForegroundColor Green
     exit 0
 } else {
-    Write-Host "  ✗ KAFKA TEST FAILED" -ForegroundColor Red
+    Write-Host "  [FAIL] KAFKA TEST FAILED" -ForegroundColor Red
     exit 1
 }

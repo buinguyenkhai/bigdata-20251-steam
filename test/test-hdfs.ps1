@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 Write-Host "=== HDFS Read/Write Test ===" -ForegroundColor Cyan
 
@@ -7,11 +7,11 @@ $namenodeStatus = kubectl get pods -l app.kubernetes.io/name=hdfs,app.kubernetes
 $datanodeStatus = kubectl get pods -l app.kubernetes.io/name=hdfs,app.kubernetes.io/component=datanode -o jsonpath='{.items[0].status.phase}' 2>$null
 
 if ($namenodeStatus -ne "Running") {
-    Write-Host "ERROR: HDFS NameNode not running. Run .\test\start.ps1 first." -ForegroundColor Red
+    Write-Host "ERROR: HDFS NameNode not running. Run .\test\reset-all.ps1 first." -ForegroundColor Red
     exit 1
 }
 if ($datanodeStatus -ne "Running") {
-    Write-Host "ERROR: HDFS DataNode not running. Run .\test\start.ps1 first." -ForegroundColor Red
+    Write-Host "ERROR: HDFS DataNode not running. Run .\test\reset-all.ps1 first." -ForegroundColor Red
     exit 1
 }
 Write-Host "  NameNode: Running" -ForegroundColor Green
@@ -69,9 +69,9 @@ Write-Host "  Removed test file" -ForegroundColor Gray
 
 Write-Host "`n============================================" -ForegroundColor Cyan
 if ($success) {
-    Write-Host "  ✓ HDFS TEST PASSED" -ForegroundColor Green
+    Write-Host "  [PASS] HDFS TEST PASSED" -ForegroundColor Green
     exit 0
 } else {
-    Write-Host "  ✗ HDFS TEST FAILED" -ForegroundColor Red
+    Write-Host "  [FAIL] HDFS TEST FAILED" -ForegroundColor Red
     exit 1
 }
