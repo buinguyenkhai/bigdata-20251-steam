@@ -7,15 +7,10 @@ Write-Host "   Steam Analytics Pipeline - E2E Test     " -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
-# --- Step 0: Cleanup Previous Run ---
-Write-Host "[0/10] Cleaning up previous run..." -ForegroundColor Yellow
+# --- Step 0: Cleanup Previous Producer Run ---
+Write-Host "[0/10] Cleaning up previous producer job..." -ForegroundColor Yellow
 kubectl delete job steam-producer --ignore-not-found 2>$null | Out-Null
-Write-Host "  Deleted old producer job" -ForegroundColor Gray
-kubectl delete sparkapplication steam-reviews-app steam-charts-app --ignore-not-found 2>$null | Out-Null
-Write-Host "  Deleted old Spark apps" -ForegroundColor Gray
-# Wait for pods to terminate
-Start-Sleep -Seconds 5
-Write-Host "  Cleanup complete" -ForegroundColor Green
+Write-Host "  Deleted old producer job (keeping Spark apps for faster startup)" -ForegroundColor Gray
 
 # --- Step 1: Check Infrastructure ---
 Write-Host "[1/10] Checking infrastructure pods..." -ForegroundColor Yellow
@@ -23,7 +18,7 @@ $requiredPods = @("simple-kafka-broker", "simple-hdfs-namenode", "simple-zk-serv
 foreach ($pod in $requiredPods) {
     $status = kubectl get pods | Select-String $pod | Select-String "Running"
     if (-not $status) {
-        Write-Host "ERROR: $pod is not running. Run .\test\start.ps1 first." -ForegroundColor Red
+        Write-Host "ERROR: $pod is not running. Run .\test\reset-all.ps1 first." -ForegroundColor Red
         exit 1
     }
 }
@@ -51,36 +46,29 @@ if ($elapsed -ge $timeout) {
 
 # --- Step 3: Create Kafka Topics ---
 Write-Host "`n[3/10] Creating Kafka topics..." -ForegroundColor Yellow
-$topics = kubectl exec simple-kafka-broker-default-0 -c kafka -- bin/kafka-topics.sh --list --bootstrap-server localhost:9092 2>$null
-if ($topics -notmatch "game_info") {
-    kubectl exec simple-kafka-broker-default-0 -c kafka -- bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --topic game_info --partitions 3 --replication-factor 1 2>$null | Out-Null
-    Write-Host "  Created topic: game_info" -ForegroundColor Green
-} else {
-    Write-Host "  Topic game_info already exists" -ForegroundColor Gray
-}
-if ($topics -notmatch "game_comments") {
-    kubectl exec simple-kafka-broker-default-0 -c kafka -- bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --topic game_comments --partitions 3 --replication-factor 1 2>$null | Out-Null
-    Write-Host "  Created topic: game_comments" -ForegroundColor Green
-} else {
-    Write-Host "  Topic game_comments already exists" -ForegroundColor Gray
-}
+# Create both topics in a single kubectl exec call with --if-not-exists for speed
+kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c "
+  bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --topic game_info --partitions 3 --replication-factor 1 --if-not-exists 2>/dev/null;
+  bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --topic game_comments --partitions 3 --replication-factor 1 --if-not-exists 2>/dev/null
+" 2>$null | Out-Null
+Write-Host "  Topics ready: game_info, game_comments" -ForegroundColor Green
 
 # --- Step 4: Build Docker Image ---
 Write-Host "`n[4/10] Building Steam producer Docker image..." -ForegroundColor Yellow
-Push-Location ..
-$buildOutput = docker build -t steam-producer:latest . 2>&1
-Pop-Location
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "  Docker build output: $buildOutput" -ForegroundColor Gray
-    Write-Host "WARNING: Docker build failed - checking if image already exists..." -ForegroundColor Yellow
-    $existingImage = docker images steam-producer:latest --format "{{.Repository}}:{{.Tag}}" 2>$null
-    if ($existingImage -eq "steam-producer:latest") {
-        Write-Host "  Using existing Docker image" -ForegroundColor Green
-    } else {
-        Write-Host "ERROR: Docker image not available" -ForegroundColor Red
+# Check if image already exists first (skip build for faster runs)
+$existingImage = docker images steam-producer:latest --format "{{.Repository}}:{{.Tag}}" 2>$null
+if ($existingImage -eq "steam-producer:latest") {
+    Write-Host "  Using existing Docker image (skipping build)" -ForegroundColor Green
+} else {
+    Write-Host "  Building Docker image..." -ForegroundColor Gray
+    Push-Location "$PSScriptRoot/.."
+    $buildOutput = docker build -t steam-producer:latest . 2>&1
+    Pop-Location
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: Docker build failed" -ForegroundColor Red
+        Write-Host "  $buildOutput" -ForegroundColor Gray
         exit 1
     }
-} else {
     Write-Host "  Docker image built successfully" -ForegroundColor Green
 }
 
@@ -97,7 +85,7 @@ Write-Host "  Spark apps deployed" -ForegroundColor Green
 
 # --- Step 7: Wait for Spark drivers to start ---
 Write-Host "`n[7/10] Waiting for Spark drivers to start (this may take 2-3 minutes)..." -ForegroundColor Yellow
-$timeout = 180
+$timeout = 600
 $elapsed = 0
 while ($elapsed -lt $timeout) {
     $drivers = kubectl get pods -l spark-role=driver --no-headers 2>$null | Select-String "Running"
@@ -121,7 +109,7 @@ Start-Sleep -Seconds 2
 kubectl apply -f steam-job.yaml 2>$null | Out-Null
 
 # Wait for producer to complete
-$timeout = 300
+$timeout = 120
 $elapsed = 0
 while ($elapsed -lt $timeout) {
     $producerStatus = kubectl get pods -l job-name=steam-producer -o jsonpath='{.items[0].status.phase}' 2>$null
