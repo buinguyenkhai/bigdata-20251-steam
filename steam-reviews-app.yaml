@@ -20,6 +20,9 @@ spec:
 
   sparkConf:
     spark.app.name: "SteamReviews"
+    # Enable Spark UI for monitoring
+    spark.ui.enabled: "true"
+    spark.ui.port: "4040"
     spark.hadoop.fs.defaultFS: "hdfs://simple-hdfs"
     spark.hadoop.dfs.nameservices: "simple-hdfs"
     spark.hadoop.dfs.ha.namenodes.simple-hdfs: "nn0,nn1"

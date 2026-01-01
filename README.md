@@ -178,12 +178,13 @@ kubectl port-forward svc/mongodb 27017:27017
 ## Project Structure
 ```
 ├── zookeeper.yaml              # Zookeeper cluster (coordination)
-├── kafka.yaml                  # Kafka cluster (messaging)
+├── kafka.yaml                  # Kafka cluster (messaging, 7-day retention)
 ├── kafka-znode.yaml            # Kafka Zookeeper node
 ├── hdfs.yaml                   # HDFS cluster (HA mode, cold storage)
 ├── hdfs-znode.yaml             # HDFS Zookeeper node
 ├── webhdfs.yaml                # WebHDFS helper pod (testing)
 ├── mongodb.yaml                # MongoDB (hot storage)
+├── expose-services.yaml        # NodePort services (Spark UI, Grafana, Prometheus)
 ├── steam-job.yaml              # Steam producer Job + ConfigMap
 ├── kafka-spark-configmap.yaml  # Spark processing scripts
 ├── kafka-test-configmap.yaml   # Spark test script
@@ -201,6 +202,7 @@ kubectl port-forward svc/mongodb 27017:27017
     ├── reset-all.ps1           # Full reset (wipes data, redeploys infrastructure)
     ├── stop-pipeline.ps1       # Gracefully stop (preserves data & images)
     ├── resume-pipeline.ps1     # Resume from stopped state (no re-pull)
+    ├── quick-deploy.ps1        # Fast app-only redeploy (skips infrastructure)
     ├── test-hdfs.ps1           # HDFS connectivity test
     ├── test-kafka.ps1          # Kafka produce/consume test
     ├── test-spark-kafka-app.ps1
@@ -366,7 +368,7 @@ kubectl logs <spark-driver-pod> -c create-truststore
 | HDFS DataNode | 512Mi |
 | HDFS JournalNode | 256Mi |
 | MongoDB | 512Mi |
-| Kafka Broker | 1Gi |
+| Kafka Broker | 2Gi |
 
 **Total estimated**: ~4-5GB for infrastructure
 
