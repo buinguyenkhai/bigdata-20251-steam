@@ -138,8 +138,9 @@ Write-Host "`n[10/10] Verifying results..." -ForegroundColor Yellow
 
 # Check HDFS
 Write-Host "`n  [HDFS Cold Storage]" -ForegroundColor Cyan
-$hdfsCharts = kubectl exec simple-hdfs-namenode-default-0 -- hdfs dfs -ls /user/stackable/archive/charts/ 2>$null | Select-String "parquet"
-$hdfsReviews = kubectl exec simple-hdfs-namenode-default-0 -- hdfs dfs -ls /user/stackable/archive/reviews/ 2>$null | Select-String "parquet"
+# FIX: Added '-c namenode' to prevent "Defaulted container" warning which crashes PowerShell
+$hdfsCharts = kubectl exec simple-hdfs-namenode-default-0 -c namenode -- hdfs dfs -ls /user/stackable/archive/charts/ 2>$null | Select-String "parquet"
+$hdfsReviews = kubectl exec simple-hdfs-namenode-default-0 -c namenode -- hdfs dfs -ls /user/stackable/archive/reviews/ 2>$null | Select-String "parquet"
 $chartsCount = ($hdfsCharts | Measure-Object).Count
 $reviewsCount = ($hdfsReviews | Measure-Object).Count
 
