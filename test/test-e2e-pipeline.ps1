@@ -46,12 +46,55 @@ if ($elapsed -ge $timeout) {
 
 # --- Step 3: Create Kafka Topics ---
 Write-Host "`n[3/10] Creating Kafka topics..." -ForegroundColor Yellow
-# Create both topics in a single kubectl exec call with --if-not-exists for speed
-kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c "
-  bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --topic game_info --partitions 3 --replication-factor 1 --if-not-exists 2>/dev/null;
-  bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --topic game_comments --partitions 3 --replication-factor 1 --if-not-exists 2>/dev/null
-" 2>$null | Out-Null
-Write-Host "  Topics ready: game_info, game_comments" -ForegroundColor Green
+
+# 1. Create a custom SSL configuration file inside the container
+# FIX: Added 'ssl.endpoint.identification.algorithm=' to disable hostname verification (fixes "No subject alternative DNS name matching localhost")
+$configCmd = "echo 'security.protocol=SSL' > /tmp/client.properties; echo 'ssl.truststore.location=/stackable/tls-kafka-server/truststore.p12' >> /tmp/client.properties; echo 'ssl.truststore.type=PKCS12' >> /tmp/client.properties; echo 'ssl.truststore.password=' >> /tmp/client.properties; echo 'ssl.keystore.location=/stackable/tls-kafka-server/keystore.p12' >> /tmp/client.properties; echo 'ssl.keystore.type=PKCS12' >> /tmp/client.properties; echo 'ssl.keystore.password=' >> /tmp/client.properties; echo 'ssl.endpoint.identification.algorithm=' >> /tmp/client.properties"
+
+# Execute the file creation
+kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c $configCmd
+
+# Define the base command using the new config file
+$kafkaCmdBase = "kafka-topics.sh --bootstrap-server localhost:9093 --command-config /tmp/client.properties"
+
+# 2. Wait for Kafka to be ready (Retry loop)
+Write-Host "  Waiting for Kafka to be ready..." -ForegroundColor Gray
+$kafkaReady = $false
+for ($i=0; $i -lt 20; $i++) {
+    try {
+        # Check listing topics using the SSL config
+        kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c "$kafkaCmdBase --list" 2>&1 | Out-Null
+        
+        if ($LASTEXITCODE -eq 0) {
+            $kafkaReady = $true
+            break
+        }
+    } catch {
+        # Ignore connection errors during startup
+    }
+    Start-Sleep -Seconds 5
+    Write-Host "." -NoNewline -ForegroundColor Gray
+}
+Write-Host "" # Newline
+
+if (-not $kafkaReady) {
+    Write-Host "ERROR: Kafka is not responding on port 9093 (SSL)." -ForegroundColor Red
+    Write-Host "Debugging output:" -ForegroundColor Yellow
+    kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c "$kafkaCmdBase --list"
+    exit 1
+}
+
+# 3. Create Topics
+Write-Host "  Kafka is ready. Creating topics..." -ForegroundColor Gray
+try {
+    # Create topics using the SSL base command
+    kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c "$kafkaCmdBase --create --topic game_info --partitions 3 --replication-factor 1 --if-not-exists; $kafkaCmdBase --create --topic game_comments --partitions 3 --replication-factor 1 --if-not-exists" 2>&1 | Out-Null
+    Write-Host "  Topics ready: game_info, game_comments" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to create topics." -ForegroundColor Red
+    Write-Host $_
+    exit 1
+}
 
 # --- Step 4: Build Docker Image ---
 Write-Host "`n[4/10] Building Steam producer Docker image..." -ForegroundColor Yellow
