@@ -14,10 +14,15 @@ RUN useradd -m -u 1000 -s /bin/bash appuser
 WORKDIR /app
 
 # copy requirements and source
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY steam_to_kafka.py /app/steam_to_kafka.py
+# Copy source code
+COPY steam_to_kafka.py .
+COPY steam_utils.py .
+COPY producer_reviews.py .
+COPY producer_players.py .
+COPY processed_appids.txt .
 
 # Change ownership and switch to non-root user
 RUN chown -R appuser:appuser /app

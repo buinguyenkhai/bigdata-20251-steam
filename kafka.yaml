@@ -18,6 +18,14 @@ spec:
         config:
           resources:
             memory:
-              limit: 1Gi
+              limit: 2Gi
             cpu:
               max: "1"
+        configOverrides:
+          server.properties:
+            # Retention: 7 days (168 hours) for Kappa architecture replayability
+            log.retention.hours: "168"
+            # Segment size: 100MB for efficient log compaction
+            log.segment.bytes: "104857600"
+            # Retention check interval: every 5 minutes
+            log.retention.check.interval.ms: "300000"

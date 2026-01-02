@@ -1,62 +1,76 @@
 import time
 import json
 import re
-from datetime import datetime
+import html
 import requests
-from confluent_kafka import Producer
 import os
+from datetime import datetime
+from confluent_kafka import Producer
 
+# ==============================================================================
+# CONFIGURATION & ENV VARS
+# ==============================================================================
 BOOTSTRAP_SERVERS = os.getenv("BOOTSTRAP_SERVERS", "localhost:9092")
 TOPIC_GAME_INFO = os.getenv("TOPIC_GAME_INFO", "game_info")
 TOPIC_GAME_COMMENTS = os.getenv("TOPIC_GAME_COMMENTS", "game_comments")
-FILTERS_ENV = os.getenv("FILTERS", "topsellers")
-PAGE_LIST_ENV = os.getenv("PAGE_LIST", "1")
+TOPIC_PLAYER_COUNT = os.getenv("TOPIC_PLAYER_COUNT", "game_player_count")
 
 # SSL/TLS configuration
 KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", "PLAINTEXT")
 KAFKA_SSL_CA_LOCATION = os.getenv("KAFKA_SSL_CA_LOCATION", "")
 KAFKA_SSL_TRUSTSTORE_LOCATION = os.getenv("KAFKA_SSL_TRUSTSTORE_LOCATION", "")
 
-# Search params
-PARAMS_SR_DEFAULT = {
-    "filter": "topsellers",
-    "hidef2p": 1,
-    "page": 1,
-    "json": 1
+# Genre Map from review_scrape.py
+GENRE_TAG_MAP = {
+    "sports": 701, "horror": 1667, "science_fiction": 3942,
+    "exploration_open_world": 1695, "anime": 4085, "survival": 1662,
+    "action_fps": 1663, "hidden_object": 1738, "rpg_action": 4231,
+    "casual": 597, "puzzle_matching": 1664, "visual_novel": 3799
 }
 
-# Producer setup with optional SSL
+# ==============================================================================
+# KAFKA PRODUCER SETUP
+# ==============================================================================
 producer_conf = {
     "bootstrap.servers": BOOTSTRAP_SERVERS,
-    "client.id": "steam-producer",
+    "client.id": "steam-producer-unified",
     "linger.ms": 5,
 }
 
-# Add SSL configuration if enabled
 if KAFKA_SECURITY_PROTOCOL == "SSL":
     producer_conf["security.protocol"] = "SSL"
-    # For self-signed certs in test environment, disable certificate verification
     producer_conf["ssl.endpoint.identification.algorithm"] = "none"
     producer_conf["enable.ssl.certificate.verification"] = "false"
+    if KAFKA_SSL_CA_LOCATION:
+        producer_conf["ssl.ca.location"] = KAFKA_SSL_CA_LOCATION
+    if KAFKA_SSL_TRUSTSTORE_LOCATION:
+        producer_conf["ssl.truststore.location"] = KAFKA_SSL_TRUSTSTORE_LOCATION
 
 producer = Producer(producer_conf)
 
 delivery_stats = {"success": 0, "failed": 0, "last_error": None}
 MAX_DELIVERY_FAILURES = 100
 
+# ==============================================================================
+# UTILITIES
+# ==============================================================================
 def print_log(*args):
     print(f"[{str(datetime.now())[:-3]}] ", end="")
     print(*args)
 
+def clean_html(raw_html):
+    """Cleans HTML tags from text (from review_scrape.py)."""
+    if not raw_html: return ""
+    cleanr = re.compile('<.*?>')
+    return html.unescape(re.sub(cleanr, '', raw_html)).strip()
+
 def delivery_report(err, msg):
-    """Callback for Kafka message delivery with error tracking."""
+    """Callback for Kafka message delivery."""
     global delivery_stats
     if err is not None:
         delivery_stats["failed"] += 1
         delivery_stats["last_error"] = str(err)
-        print_log(f"Delivery failed ({delivery_stats['failed']} total): {err}")
-        if delivery_stats["failed"] >= MAX_DELIVERY_FAILURES:
-            raise Exception(f"Too many Kafka delivery failures: {delivery_stats['failed']}")
+        print_log(f"Delivery failed: {err}")
     else:
         delivery_stats["success"] += 1
 
@@ -67,9 +81,13 @@ def kafka_send(topic: str, value: dict, key: str = None):
         producer.produce(topic, key=key, value=payload, callback=delivery_report)
         producer.poll(0)
     except Exception as e:
-        print_log("Failed to produce message:", e)
+        print_log(f"Failed to produce message to {topic}:", e)
 
-def get_search_results(params, max_retries=3, backoff=2):
+# ==============================================================================
+# API FETCHING FUNCTIONS
+# ==============================================================================
+def get_search_results(params, max_retries=3):
+    """Fetches search results from Steam."""
     url = "https://store.steampowered.com/search/results/"
     for attempt in range(1, max_retries + 1):
         try:
@@ -77,60 +95,51 @@ def get_search_results(params, max_retries=3, backoff=2):
             if r.status_code == 200:
                 return r.json()
             elif r.status_code == 429:
-                print_log("Rate limited by search endpoint. Sleeping...")
-                time.sleep(backoff * attempt)
+                time.sleep(2 * attempt)
             else:
-                print_log("Search returned status", r.status_code)
                 return {"items": []}
         except Exception as e:
-            print_log("Search request error:", e)
-            time.sleep(backoff * attempt)
+            print_log(f"Search error: {e}")
+            time.sleep(1 * attempt)
     return {"items": []}
 
-def get_app_details(appid, max_retries=5):
-    if not appid:
-        return {}
+def get_app_details(appid):
+    """Fetches detailed metadata for an AppID."""
+    if not appid: return {}
     url = "https://store.steampowered.com/api/appdetails/"
-    for attempt in range(1, max_retries + 1):
-        try:
-            r = requests.get(url, params={"appids": appid, "cc": "hk", "l": "english"}, timeout=20)
-            if r.status_code == 200:
-                jd = r.json().get(str(appid), {})
-                print_log(f"App Id: {appid} - success={jd.get('success')}")
-                return jd
-            elif r.status_code == 429:
-                print_log("App details rate limited. Sleeping 10s...")
-                time.sleep(10)
-            elif r.status_code == 403:
-                print_log("Forbidden (403). Sleeping 300s...")
-                time.sleep(300)
-            else:
-                print_log("App details HTTP", r.status_code)
-                return {}
-        except Exception as e:
-            print_log("Error fetching app details:", e)
-            time.sleep(2 ** attempt)
+    try:
+        r = requests.get(url, params={"appids": appid, "cc": "us", "l": "english"}, timeout=20)
+        if r.status_code == 200:
+            return r.json().get(str(appid), {})
+        elif r.status_code == 429:
+            time.sleep(5)
+    except Exception as e:
+        print_log(f"App details error for {appid}: {e}")
     return {}
 
-def fetch_steam_reviews(app_id, max_pages=5, delay=1, start_date=None, end_date=None):
+def get_current_players(appid):
+    """Fetches current player count (from player_count.py)."""
+    url = "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/"
+    try:
+        r = requests.get(url, params={'appid': appid}, timeout=10)
+        if r.status_code == 200:
+            return r.json().get('response', {}).get('player_count', 0)
+    except Exception as e:
+        print_log(f"Player count error for {appid}: {e}")
+    return -1
+
+def fetch_steam_reviews(app_id, max_pages=3):
     """
-    Fetch reviews (public) from Steam and yield each review record as dict.
-    Based on Steam store appreviews endpoint and cursor paging.
+    Fetches RECENT reviews without balancing.
+    Yields cleaned review objects.
     """
     base_url = f"https://store.steampowered.com/appreviews/{app_id}"
     cursor = "*"
-    start_ts = None
-    end_ts = None
-    if start_date:
-        start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp())
-    if end_date:
-        end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp())
-
-    total = 0
+    
     for page in range(max_pages):
         params = {
             "json": 1,
-            "filter": "recent",
+            "filter": "recent", # Using recent to get latest stream of data
             "language": "english",
             "review_type": "all",
             "purchase_type": "all",
@@ -139,152 +148,168 @@ def fetch_steam_reviews(app_id, max_pages=5, delay=1, start_date=None, end_date=
         }
         try:
             resp = requests.get(base_url, params=params, timeout=20)
-            if resp.status_code != 200:
-                print_log(f"Reviews endpoint returned {resp.status_code}. Stopping.")
-                break
+            if resp.status_code != 200: break
             data = resp.json()
-        except Exception as e:
-            print_log("Error fetching reviews:", e)
-            break
+        except: break
 
         reviews = data.get("reviews", [])
-        if not reviews:
-            print_log("No reviews returned. Stopping.")
-            break
+        if not reviews: break
 
         for r in reviews:
-            ts = r.get("timestamp_created")
-            if start_ts and ts < start_ts:
-                continue
-            if end_ts and ts > end_ts:
-                continue
-
-            review_rec = {
+            yield {
                 "app_id": app_id,
                 "review_id": r.get("recommendationid"),
-                "author": r.get("author", {}).get("steamid"),
+                "author_steamid": r.get("author", {}).get("steamid"),
+                "playtime_at_review": r.get("author", {}).get("playtime_at_review"),
+                "playtime_forever": r.get("author", {}).get("playtime_forever"),
                 "language": r.get("language"),
-                "recommended": r.get("voted_up"),
-                "steam_purchase": r.get("steam_purchase"),
+                "voted_up": r.get("voted_up"),
                 "votes_up": r.get("votes_up"),
                 "weighted_vote_score": r.get("weighted_vote_score"),
-                "timestamp_unix": ts,
-                "timestamp": datetime.fromtimestamp(ts).isoformat() if ts else None,
-                "review": r.get("review"),
-                "votes_funny": r.get("votes_funny"),
+                "timestamp_created": r.get("timestamp_created"),
+                "review_text": clean_html(r.get("review")), # Cleaned HTML
+                "scraped_at": datetime.utcnow().isoformat()
             }
-            total += 1
-            yield review_rec
 
         cursor = data.get("cursor", "")
-        if not cursor:
-            break
-        print_log(f"Fetched page {page+1} for app {app_id} - reviews so far: {total}")
-        time.sleep(delay)
+        if not cursor: break
+        time.sleep(0.5)
 
-def flatten_appdetail_record(item):
+# ==============================================================================
+# DATA PROCESSING
+# ==============================================================================
+def flatten_app_data(item, genre_tag):
     """
-    Build a reasonably compact JSON record for game_info. Keeps key nested fields as needed.
-    We use appdetail.data as source (if present). The uploaded hierarchy lists many available fields (developers, genres, price_overview, platforms, release_date, etc).
-    See uploaded hierarchy reference for full structure.
-    
-    IMPORTANT: Nested objects (lists/dicts) are serialized as JSON strings to match
-    the Spark schema which expects StringType for these fields.
+    Flattens app details for the 'game_info' topic.
+    Combines logic from all_scrape.py and steam_to_kafka.py.
     """
-    
+    appid = item.get("appid")
     appdetail = item.get("appdetail", {})
     data = appdetail.get("data", {}) if isinstance(appdetail, dict) else {}
-
-    rec = {
+    
+    # Serialize complex fields to string for Spark/DB compatibility
+    return {
+        "appid": int(appid),
         "name": item.get("name"),
-        "appid": int(item.get("appid")) if item.get("appid") else None,
+        "primary_genre": genre_tag, # From loop context
         "type": data.get("type"),
-        "short_description": data.get("short_description"),
+        "release_date": data.get("release_date", {}).get("date"),
+        "is_free": data.get("is_free"),
+        "short_description": clean_html(data.get("short_description")),
         "developers": json.dumps(data.get("developers") or []),
         "publishers": json.dumps(data.get("publishers") or []),
         "genres": json.dumps([g.get("description") for g in (data.get("genres") or [])]),
         "price_overview": json.dumps(data.get("price_overview") or {}),
-        "platforms": json.dumps(data.get("platforms") or {}),
-        "header_image": data.get("header_image"),
-        "release_date": json.dumps(data.get("release_date") or {}),
-        "recommendations": json.dumps(data.get("recommendations") or {}),
-        "achievements": json.dumps(data.get("achievements") or {}),
-        "screenshots_count": len(data.get("screenshots") or []),
-        "movies_count": len(data.get("movies") or []),
-        "timestamp": datetime.utcnow().isoformat(),
+        "categories": json.dumps([c.get("description") for c in (data.get("categories") or [])]),
+        "metacritic": data.get("metacritic", {}).get("score"),
+        "recommendations": data.get("recommendations", {}).get("total"),
+        "achievements_count": data.get("achievements", {}).get("total", 0),
+        "timestamp_scraped": datetime.utcnow().isoformat()
     }
-    return rec
 
-def process_toplist_and_send(params_list, page_list):
-    for update_param in params_list:
-        for page_no in page_list:
-            params = PARAMS_SR_DEFAULT.copy()
-            params.update(update_param)
-            params["page"] = page_no
+def process_genres_and_send():
+    """
+    Main Logic: Iterates genres -> Gets Top 10 -> Sends Info, Players, Reviews to Kafka.
+    """
+    processed_appids = set()
 
-            sr = get_search_results(params)
-            items = sr.get("items", []) if sr else []
-            print_log(f"Fetched {len(items)} search items page={page_no} filter={update_param.get('filter')}")
+    for genre_name, tag_id in GENRE_TAG_MAP.items():
+        print_log(f"--- Processing Genre: {genre_name} (Tag: {tag_id}) ---")
+        
+        # 1. Fetch Top Games for Genre
+        # category1=998 ensures we get "Games" and not DLC/Music
+        params = {
+            "tags": tag_id, 
+            "category1": 998, 
+            "json": 1, 
+            "page": 1  # We only need the first batch to get top 10
+        }
+        
+        sr = get_search_results(params)
+        items = sr.get("items", [])
+        
+        games_processed_for_genre = 0
+        target_per_genre = 1
+        
+        for item in items:
+            if games_processed_for_genre >= target_per_genre:
+                break
+                
+            # Extract AppID
+            try:
+                logo = item.get("logo", "")
+                if "steam/" in logo:
+                    appid = re.search(r"steam/\w+/(\d+)", logo).group(1)
+                else: 
+                    # Fallback if logo URL format differs
+                    appid = item.get("id") # Sometimes present in search results
+            except: appid = None
 
-            for item in items:
-                try:
-                    item["appid"] = re.search(r"steam/\w+/(\d+)", item.get("logo", "")).group(1)
-                except Exception:
-                    item["appid"] = None
+            if not appid or appid in processed_appids:
+                continue
 
-                appid = item.get("appid")
-                if not appid:
-                    print_log("Skipping item without appid:", item.get("name"))
-                    continue
+            print_log(f"  > Processing: {item.get('name')} (AppID: {appid})")
+            
+            # 2. Fetch Details & Send Game Info
+            appdetails = get_app_details(appid)
+            if not appdetails.get("success"):
+                print_log("    Failed to get app details, skipping.")
+                continue
+                
+            item["appid"] = appid
+            item["appdetail"] = appdetails
+            
+            game_record = flatten_app_data(item, genre_name)
+            kafka_send(TOPIC_GAME_INFO, game_record, key=str(appid))
+            
+            # 3. Fetch & Send Player Count
+            p_count = get_current_players(appid)
+            if p_count >= 0:
+                player_record = {
+                    "appid": int(appid),
+                    "player_count": p_count,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                kafka_send(TOPIC_PLAYER_COUNT, player_record, key=str(appid))
+                print_log(f"    Sent player count: {p_count}")
 
-                print_log(f"Loading game: {item.get('name')} (AppID={appid})")
+            # 4. Fetch & Send Reviews (Recent, Unbalanced)
+            review_count = 0
+            for review in fetch_steam_reviews(appid, max_pages=3):
+                kafka_send(TOPIC_GAME_COMMENTS, review, key=str(appid))
+                review_count += 1
+            print_log(f"    Sent {review_count} reviews.")
 
-                appdetails = get_app_details(appid)
-                item["appdetail"] = appdetails
-                info_rec = flatten_appdetail_record(item)
-                kafka_send(TOPIC_GAME_INFO, info_rec, key=str(info_rec.get("appid")))
-                for review in fetch_steam_reviews(appid, max_pages=3, delay=1):
-                    kafka_send(TOPIC_GAME_COMMENTS, review, key=str(appid))
-                time.sleep(1)
+            # Mark processed
+            processed_appids.add(appid)
+            games_processed_for_genre += 1
+            
+            # Respect rate limits
+            time.sleep(1.5)
+
     producer.flush()
-    print_log("Finished sending all game info and comments.")
+    print_log("Done. Producer flushed.")
 
-def verify_kafka_connection(timeout=10):
-    """Verify Kafka broker is reachable before starting pipeline."""
-    print_log(f"Verifying Kafka connection to {BOOTSTRAP_SERVERS}...")
-    try:
-        metadata = producer.list_topics(timeout=timeout)
-        print_log(f"  Connected! Found {len(metadata.topics)} topics.")
-        return True
-    except Exception as e:
-        print_log(f"  Failed to connect to Kafka: {e}")
-        return False
-
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
 if __name__ == "__main__":
-    PARAMS_LIST = [{"filter": f.strip()} for f in FILTERS_ENV.split(",") if f.strip()]
-    PAGE_LIST = [int(p.strip()) for p in PAGE_LIST_ENV.split(",") if p.strip()]
+    print_log("Starting Steam Unified Scraper -> Kafka")
+    print_log(f"  Topics: {TOPIC_GAME_INFO}, {TOPIC_GAME_COMMENTS}, {TOPIC_PLAYER_COUNT}")
 
-    print_log("Starting Steam -> Kafka pipeline")
-    print_log(f"  Bootstrap servers: {BOOTSTRAP_SERVERS}")
-    print_log(f"  Security protocol: {KAFKA_SECURITY_PROTOCOL}")
-    if KAFKA_SECURITY_PROTOCOL == "SSL":
-        print_log(f"  SSL Truststore: {KAFKA_SSL_TRUSTSTORE_LOCATION}")
-    print_log(f"  Topics: {TOPIC_GAME_INFO}, {TOPIC_GAME_COMMENTS}")
-    print_log(f"  Filters: {[p['filter'] for p in PARAMS_LIST]}")
-    print_log(f"  Pages: {PAGE_LIST}")
-
-    if not verify_kafka_connection():
-        print_log("ERROR: Cannot connect to Kafka. Exiting.")
-        exit(1)
-    
+    # Verify connection
     try:
-        process_toplist_and_send(PARAMS_LIST, PAGE_LIST)
-    except KeyboardInterrupt:
-        print_log("Interrupted by user.")
+        producer.list_topics(timeout=10)
+        print_log("  Kafka connection successful.")
     except Exception as e:
-        print_log(f"Pipeline error: {e}")
-        raise
+        print_log(f"  ERROR: Could not connect to Kafka: {e}")
+        exit(1)
+
+    try:
+        process_genres_and_send()
+    except KeyboardInterrupt:
+        print_log("Interrupted.")
+    except Exception as e:
+        print_log(f"Fatal Error: {e}")
     finally:
         producer.flush()
-        print_log(f"Producer flushed. Stats: {delivery_stats}")
-        print_log("Exiting.")

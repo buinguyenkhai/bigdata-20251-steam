@@ -6,10 +6,11 @@ data:
   BOOTSTRAP_SERVERS: "simple-kafka-broker-default-bootstrap.default.svc.cluster.local:9093"
   TOPIC_GAME_INFO: "game_info"
   TOPIC_GAME_COMMENTS: "game_comments"
+  TOPIC_PLAYER_COUNT: "player_count"
   FILTERS: "topsellers"
   PAGE_LIST: "1"
   KAFKA_SECURITY_PROTOCOL: "SSL"
-  KAFKA_SSL_TRUSTSTORE_LOCATION: "/stackable/tls/truststore.p12"
+  KAFKA_SSL_CA_LOCATION: "/stackable/tls/ca.crt"
 
 ---
 apiVersion: batch/v1
@@ -17,9 +18,13 @@ kind: Job
 metadata:
   name: steam-producer
 spec:
-  backoffLimit: 5            
+  backoffLimit: 0 # Fail fast for debugging
   template:
     spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
       restartPolicy: Never
       volumes:
         - name: tls
@@ -74,11 +79,11 @@ spec:
                 configMapKeyRef:
                   name: steam-producer-config
                   key: KAFKA_SECURITY_PROTOCOL
-            - name: KAFKA_SSL_TRUSTSTORE_LOCATION
+            - name: KAFKA_SSL_CA_LOCATION
               valueFrom:
                 configMapKeyRef:
                   name: steam-producer-config
-                  key: KAFKA_SSL_TRUSTSTORE_LOCATION
+                  key: KAFKA_SSL_CA_LOCATION
           resources:
             requests:
               cpu: 200m

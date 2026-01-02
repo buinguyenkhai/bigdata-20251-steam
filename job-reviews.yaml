@@ -1,0 +1,59 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: steam-producer-reviews
+spec:
+  # One-off job, but can be retried manually or via CronJob if needed later
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: steam-producer-reviews
+    spec:
+      containers:
+        - name: steam-reviews
+          image: steam-producer:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-u", "producer_reviews.py"]
+          env:
+            - name: BOOTSTRAP_SERVERS
+              value: "simple-kafka-broker-default-0.simple-kafka-broker-default:9093"
+            - name: KAFKA_SECURITY_PROTOCOL
+              value: "SSL"
+            - name: KAFKA_SSL_CA_LOCATION
+              value: "/stackable/tls/ca.crt"
+            # Config Limit: Modify these to control scope
+            - name: MAX_APPS_TO_PROCESS
+              value: "100" 
+            - name: MAX_REVIEW_PAGES
+              value: "3"
+          volumeMounts:
+            - name: tls
+              mountPath: /stackable/tls
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: tls
+          ephemeral:
+            volumeClaimTemplate:
+              metadata:
+                annotations:
+                  secrets.stackable.tech/class: tls
+                  secrets.stackable.tech/scope: pod
+              spec:
+                storageClassName: secrets.stackable.tech
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: "1"
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
