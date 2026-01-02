@@ -1,0 +1,82 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: steam-producer-reviews
+spec:
+  schedule: "*/5 * * * *"  
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: steam-producer-reviews
+        spec:
+          securityContext:
+            fsGroup: 1000
+            runAsUser: 1000
+            runAsGroup: 1000
+          restartPolicy: Never
+          volumes:
+            - name: tls
+              ephemeral:
+                volumeClaimTemplate:
+                  metadata:
+                    annotations:
+                      secrets.stackable.tech/class: tls
+                      secrets.stackable.tech/scope: pod
+                  spec:
+                    storageClassName: secrets.stackable.tech
+                    accessModes:
+                      - ReadWriteOnce
+                    resources:
+                      requests:
+                        storage: "1"
+          containers:
+            - name: steam-producer
+              image: steam-producer:latest
+              imagePullPolicy: IfNotPresent
+              # EXPLICIT COMMAND: Running the reviews producer script
+              command: ["python", "-u", "producer_reviews.py"]
+              volumeMounts:
+                - name: tls
+                  mountPath: /stackable/tls
+              env:
+                - name: BOOTSTRAP_SERVERS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: steam-producer-config
+                      key: BOOTSTRAP_SERVERS
+                - name: TOPIC_GAME_COMMENTS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: steam-producer-config
+                      key: TOPIC_GAME_COMMENTS
+                - name: FILTERS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: steam-producer-config
+                      key: FILTERS
+                - name: PAGE_LIST
+                  valueFrom:
+                    configMapKeyRef:
+                      name: steam-producer-config
+                      key: PAGE_LIST
+                - name: KAFKA_SECURITY_PROTOCOL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: steam-producer-config
+                      key: KAFKA_SECURITY_PROTOCOL
+                - name: KAFKA_SSL_CA_LOCATION
+                  valueFrom:
+                    configMapKeyRef:
+                      name: steam-producer-config
+                      key: KAFKA_SSL_CA_LOCATION
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi

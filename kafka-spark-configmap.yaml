@@ -3,19 +3,19 @@ kind: ConfigMap
 metadata:
   name: kafka-spark-configmap
 data:
+  # ---------------------------------------------------------
+  # 1. REVIEWS PROCESSOR (High Volume)
+  # Topic: game_comments
+  # ---------------------------------------------------------
   process_reviews.py: |
     import os
     from pyspark.sql import SparkSession
-    from pyspark.sql.functions import col, from_json, avg, count, sum
+    from pyspark.sql.functions import col, from_json, avg, count, sum, window
     from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType, BooleanType
 
-    # Truststore is created by initContainer
     truststore = "/truststore/truststore.p12"
     if not os.path.exists(truststore):
-        print(f"ERROR: Truststore not found at {truststore}")
         truststore = None
-    else:
-        print(f"Using truststore at {truststore}")
 
     spark = SparkSession.builder.appName("SteamReviews").getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
@@ -24,22 +24,21 @@ data:
     topic = "game_comments"
     security_protocol = os.environ.get("KAFKA_SECURITY_PROTOCOL", "SSL")
 
+    # Schema matching 'kafka test output.txt' for game_comments
+    # Example: {"app_id": "2494350", "timestamp_created": 1764174776, ...}
     schema = StructType([
-        StructField("app_id", IntegerType(), True),
-        StructField("review_id", IntegerType(), True),
-        StructField("author", StringType(), True),
+        StructField("app_id", StringType(), True), # Log shows string "2494350"
+        StructField("review_id", StringType(), True),
+        StructField("author_steamid", StringType(), True),
         StructField("language", StringType(), True),
-        StructField("recommended", BooleanType(), True),
-        StructField("steam_purchase", BooleanType(), True),
+        StructField("voted_up", BooleanType(), True),
         StructField("votes_up", IntegerType(), True),
         StructField("weighted_vote_score", FloatType(), True),
-        StructField("timestamp_unix", IntegerType(), True),
-        StructField("timestamp", StringType(), True),
-        StructField("review", StringType(), True),
-        StructField("votes_funny", IntegerType(), True)
+        StructField("timestamp_created", IntegerType(), True), # Unix Timestamp (Seconds)
+        StructField("review_text", StringType(), True),
+        StructField("scraped_at", StringType(), True)
     ])
     
-    # Build Kafka reader with SSL
     reader = (spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", bootstrap)
         .option("subscribe", topic)
@@ -53,32 +52,58 @@ data:
         reader = reader.option("kafka.ssl.truststore.password", "changeit")
     
     raw_df = reader.load()
-    parsed_df = raw_df.select(from_json(col("value").cast("string"), schema).alias("data"), col("timestamp").alias("ingest_time")).select("data.*", "ingest_time")
-
-    analytics_df = parsed_df.groupBy("recommended").agg(
-        count("review_id").alias("total_reviews"),
-        avg("weighted_vote_score").alias("avg_quality_score"),
-        sum("votes_up").alias("total_helpful_votes")
+    
+    # 1. Parse JSON
+    # 2. Cast timestamp_created (Integer/Seconds) to TimestampType
+    parsed_df = raw_df.select(from_json(col("value").cast("string"), schema).alias("data")).select(
+        col("data.app_id"),
+        col("data.voted_up").alias("recommended"),
+        col("data.votes_up"),
+        col("data.weighted_vote_score"),
+        col("data.timestamp_created").cast("timestamp").alias("timestamp") 
     )
 
-    query_cold = parsed_df.writeStream.format("parquet").option("path", "/user/stackable/archive/reviews").option("checkpointLocation", "/user/stackable/checkpoints/reviews_cold").outputMode("append").start()
-    query_hot = analytics_df.writeStream.format("mongodb").option("checkpointLocation", "/user/stackable/checkpoints/reviews_hot").outputMode("complete").start()
+    # Aggregation: 1 Hour Windows
+    analytics_df = parsed_df \
+        .withWatermark("timestamp", "10 minutes") \
+        .groupBy(window(col("timestamp"), "1 hour"), col("recommended")) \
+        .agg(
+            count("app_id").alias("total_reviews"),
+            avg("weighted_vote_score").alias("avg_quality")
+        )
+
+    # Write Raw (Cold)
+    query_cold = parsed_df.writeStream \
+        .format("parquet") \
+        .option("path", "/user/stackable/archive/reviews") \
+        .option("checkpointLocation", "/user/stackable/checkpoints/reviews_cold") \
+        .outputMode("append") \
+        .start()
+
+    # Write Aggregated (Hot) -> MongoDB
+    query_hot = analytics_df.writeStream \
+        .format("mongodb") \
+        .option("checkpointLocation", "/user/stackable/checkpoints/reviews_hot") \
+        .option("database", "bigdata") \
+        .option("collection", "steam_reviews") \
+        .outputMode("complete") \
+        .start()
 
     spark.streams.awaitAnyTermination()
 
+  # ---------------------------------------------------------
+  # 2. CHARTS PROCESSOR (Low Volume - Metadata)
+  # Topic: game_info
+  # ---------------------------------------------------------
   process_charts.py: |
     import os
     from pyspark.sql import SparkSession
-    from pyspark.sql.functions import col, from_json, max, min, avg, count
-    from pyspark.sql.types import StructType, StructField, StringType, IntegerType
+    from pyspark.sql.functions import col, from_json, count, explode
+    from pyspark.sql.types import StructType, StructField, StringType, IntegerType, ArrayType
 
-    # Truststore is created by initContainer
     truststore = "/truststore/truststore.p12"
     if not os.path.exists(truststore):
-        print(f"ERROR: Truststore not found at {truststore}")
         truststore = None
-    else:
-        print(f"Using truststore at {truststore}")
 
     spark = SparkSession.builder.appName("SteamCharts").getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
@@ -87,26 +112,16 @@ data:
     topic = "game_info"
     security_protocol = os.environ.get("KAFKA_SECURITY_PROTOCOL", "SSL")
 
+    # Schema matching 'kafka test output.txt' for game_info
+    # Example: {"appid": 2494350, "genres": ["Simulation", "Sports"], "timestamp_scraped": "..."}
     schema = StructType([
         StructField("name", StringType(), True),
-        StructField("appid", IntegerType(), True),
+        StructField("appid", IntegerType(), True), # Log shows Integer
         StructField("type", StringType(), True),
-        StructField("short_description", StringType(), True),
-        StructField("developers", StringType(), True),
-        StructField("publishers", StringType(), True),
-        StructField("genres", StringType(), True),
-        StructField("price_overview", StringType(), True),
-        StructField("platforms", StringType(), True),
-        StructField("header_image", StringType(), True),
-        StructField("release_date", StringType(), True),
-        StructField("recommendations", StringType(), True),
-        StructField("achievements", StringType(), True),
-        StructField("screenshots_count", IntegerType(), True),
-        StructField("movies_count", IntegerType(), True),
-        StructField("timestamp", StringType(), True)
+        StructField("genres", ArrayType(StringType()), True), # Log shows JSON Array
+        StructField("timestamp_scraped", StringType(), True)
     ])
 
-    # Build Kafka reader with SSL
     reader = (spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", bootstrap)
         .option("subscribe", topic)
@@ -119,15 +134,118 @@ data:
         reader = reader.option("kafka.ssl.truststore.type", "PKCS12")
         reader = reader.option("kafka.ssl.truststore.password", "changeit")
     
-    raw_df = reader.load()
-    parsed_df = raw_df.select(from_json(col("value").cast("string"), schema).alias("data")).select("data.*")
+    # Select Data
+    parsed_df = reader.load().select(from_json(col("value").cast("string"), schema).alias("data")) \
+        .select(
+            col("data.appid"),
+            col("data.name"),
+            col("data.type"),
+            col("data.genres"),
+            col("data.timestamp_scraped").cast("timestamp").alias("timestamp")
+        )
 
-    analytics_df = parsed_df.groupBy("type").agg(
-        count("appid").alias("total_games"),
-        count("name").alias("games_with_names")
-    )
+    # Logic: Explode Genres to count games per genre
+    # Flatten: [Simulation, Sports] -> 
+    #   Row(appid=1, genre=Simulation)
+    #   Row(appid=1, genre=Sports)
+    exploded_df = parsed_df.select("appid", "timestamp", explode(col("genres")).alias("genre"))
 
-    query_cold = parsed_df.writeStream.format("parquet").option("path", "/user/stackable/archive/charts").option("checkpointLocation", "/user/stackable/checkpoints/charts_cold").outputMode("append").start()
-    query_hot = analytics_df.writeStream.format("mongodb").option("checkpointLocation", "/user/stackable/checkpoints/charts_hot").outputMode("complete").start()
+    # Aggregation: Count games per genre (Simple chart)
+    analytics_df = exploded_df.groupBy("genre").agg(count("appid").alias("total_games"))
+
+    # Write Raw (Cold)
+    query_cold = parsed_df.writeStream \
+        .format("parquet") \
+        .option("path", "/user/stackable/archive/charts") \
+        .option("checkpointLocation", "/user/stackable/checkpoints/charts_cold") \
+        .outputMode("append") \
+        .start()
+
+    # Write Aggregated (Hot) -> MongoDB
+    query_hot = analytics_df.writeStream \
+        .format("mongodb") \
+        .option("checkpointLocation", "/user/stackable/checkpoints/charts_hot") \
+        .option("database", "bigdata") \
+        .option("collection", "steam_charts") \
+        .outputMode("complete") \
+        .start()
+
+    spark.streams.awaitAnyTermination()
+
+  # ---------------------------------------------------------
+  # 3. PLAYERS PROCESSOR (Periodic Count)
+  # Topic: game_player_count
+  # ---------------------------------------------------------
+  process_players.py: |
+    import os
+    from pyspark.sql import SparkSession
+    from pyspark.sql.functions import col, from_json, max, avg, window
+    from pyspark.sql.types import StructType, StructField, StringType, IntegerType
+
+    truststore = "/truststore/truststore.p12"
+    if not os.path.exists(truststore):
+        truststore = None
+
+    spark = SparkSession.builder.appName("SteamPlayers").getOrCreate()
+    spark.sparkContext.setLogLevel("WARN")
+
+    bootstrap = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "simple-kafka-broker-default-bootstrap.default.svc.cluster.local:9093")
+    topic = "game_player_count"
+    security_protocol = os.environ.get("KAFKA_SECURITY_PROTOCOL", "SSL")
+
+    # Schema matching 'kafka test output.txt' for game_player_count
+    # Example: {"appid": 1566200, "player_count": 74, "timestamp": "2026-01-02T..."}
+    schema = StructType([
+        StructField("appid", IntegerType(), True),
+        StructField("player_count", IntegerType(), True),
+        StructField("timestamp", StringType(), True)
+    ])
+
+    reader = (spark.readStream.format("kafka")
+        .option("kafka.bootstrap.servers", bootstrap)
+        .option("subscribe", topic)
+        .option("startingOffsets", "earliest")
+        .option("kafka.security.protocol", security_protocol)
+        .option("kafka.ssl.endpoint.identification.algorithm", ""))
+    
+    if truststore and os.path.exists(truststore):
+        reader = reader.option("kafka.ssl.truststore.location", truststore)
+        reader = reader.option("kafka.ssl.truststore.type", "PKCS12")
+        reader = reader.option("kafka.ssl.truststore.password", "changeit")
+    
+    # Parse and Cast
+    parsed_df = reader.load().select(from_json(col("value").cast("string"), schema).alias("data")) \
+        .select(
+            col("data.appid"),
+            col("data.player_count"),
+            col("data.timestamp").cast("timestamp").alias("timestamp") # Cast ISO string to Timestamp
+        )
+
+    # Aggregation: 10-minute windows
+    # Since this is periodic (one per run), we might get multiple points in an hour.
+    analytics_df = parsed_df \
+        .withWatermark("timestamp", "5 minutes") \
+        .groupBy(window(col("timestamp"), "10 minutes"), col("appid")) \
+        .agg(
+            max("player_count").alias("max_players"),
+            avg("player_count").alias("avg_players")
+        )
+
+    # Write Raw (Cold)
+    query_cold = parsed_df.writeStream \
+        .format("parquet") \
+        .option("path", "/user/stackable/archive/players") \
+        .option("checkpointLocation", "/user/stackable/checkpoints/players_cold") \
+        .outputMode("append") \
+        .start()
+
+    # Write Aggregated (Hot) -> MongoDB
+    query_hot = analytics_df.writeStream \
+        .format("mongodb") \
+        .option("checkpointLocation", "/user/stackable/checkpoints/players_hot") \
+        .option("database", "bigdata") \
+        .option("collection", "steam_players") \
+        .outputMode("complete") \
+        .start()
 
     spark.streams.awaitAnyTermination()
