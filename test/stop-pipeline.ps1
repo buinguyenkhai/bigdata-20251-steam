@@ -13,9 +13,12 @@ Write-Host "[1/3] Stopping Spark applications..." -ForegroundColor Yellow
 kubectl delete sparkapplication steam-reviews-app steam-charts-app --ignore-not-found 2>$null | Out-Null
 Write-Host "  Spark apps stopped" -ForegroundColor Green
 
-Write-Host "[2/3] Stopping producer job..." -ForegroundColor Yellow
+Write-Host "[2/3] Stopping producer workloads..." -ForegroundColor Yellow
 kubectl delete job steam-producer --ignore-not-found 2>$null | Out-Null
-Write-Host "  Producer job stopped" -ForegroundColor Green
+kubectl delete job steam-producer-reviews --ignore-not-found 2>$null | Out-Null
+kubectl delete cronjob steam-producer-players --ignore-not-found 2>$null | Out-Null
+kubectl delete job manual-players-trigger --ignore-not-found 2>$null | Out-Null
+Write-Host "  Producer jobs and cronjobs stopped" -ForegroundColor Green
 
 Write-Host "[3/3] Scaling down MongoDB..." -ForegroundColor Yellow
 kubectl scale deployment mongodb --replicas=0 2>$null | Out-Null
