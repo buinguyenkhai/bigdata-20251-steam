@@ -174,13 +174,15 @@ kubectl logs -l job-name=steam-producer --tail=50
 # Check HDFS data
 kubectl exec simple-hdfs-namenode-default-0 -- hdfs dfs -ls /user/stackable/archive/
 
-# Access MongoDB (CLI)
+# Web UIs (via NodePort - no port-forward needed)
+# Spark UI:      http://localhost:30040
+# Mongo Express: http://localhost:30081
+# Grafana:       http://localhost:30300 (after deployment)
+# Prometheus:    http://localhost:30090 (after deployment)
+
+# MongoDB CLI access (still needs port-forward)
 kubectl port-forward svc/mongodb 27017:27017
 # Then: mongosh mongodb://localhost:27017/game_analytics
-
-# Access Mongo Express (Web UI)
-kubectl port-forward svc/mongo-express 8081:8081
-# Then open: http://localhost:8081
 ```
 
 ## Project Structure
