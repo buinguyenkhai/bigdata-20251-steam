@@ -132,8 +132,9 @@ To save memory and avoid re-pulling images:
 
 ### 4. Manual Pipeline Deployment
 ```powershell
-# 1. Deploy MongoDB
+# 1. Deploy MongoDB + Mongo Express
 kubectl apply -f mongodb.yaml
+kubectl apply -f mongo-express-deployment.yaml
 
 # 2. Create Kafka topics (using internal port 9092)
 kubectl exec -it simple-kafka-broker-default-0 -c kafka -- bin/kafka-topics.sh `
@@ -149,6 +150,9 @@ kubectl apply -f steam-job.yaml
 kubectl apply -f kafka-spark-configmap.yaml
 kubectl apply -f steam-charts-app.yaml
 kubectl apply -f steam-reviews-app.yaml
+
+# 5. Setup MongoDB indexes (for query performance)
+powershell -ExecutionPolicy Bypass -File .\test\setup-mongodb-indexes.ps1
 ```
 
 > **Note**: Spark apps use init containers to create PKCS12 truststores from Stackable's PEM certificates for Kafka TLS connections.
@@ -170,15 +174,19 @@ kubectl logs -l job-name=steam-producer --tail=50
 # Check HDFS data
 kubectl exec simple-hdfs-namenode-default-0 -- hdfs dfs -ls /user/stackable/archive/
 
-# Access MongoDB
+# Access MongoDB (CLI)
 kubectl port-forward svc/mongodb 27017:27017
 # Then: mongosh mongodb://localhost:27017/game_analytics
+
+# Access Mongo Express (Web UI)
+kubectl port-forward svc/mongo-express 8081:8081
+# Then open: http://localhost:8081
 ```
 
 ## Project Structure
 ```
 ├── zookeeper.yaml              # Zookeeper cluster (coordination)
-├── kafka.yaml                  # Kafka cluster (messaging)
+├── kafka.yaml                  # Kafka cluster (messaging, 7-day retention)
 ├── kafka-znode.yaml            # Kafka Zookeeper node
 ├── hdfs.yaml                   # HDFS cluster (HA mode, cold storage)
 ├── hdfs-znode.yaml             # HDFS Zookeeper node
@@ -366,7 +374,7 @@ kubectl logs <spark-driver-pod> -c create-truststore
 | HDFS DataNode | 512Mi |
 | HDFS JournalNode | 256Mi |
 | MongoDB | 512Mi |
-| Kafka Broker | 1Gi |
+| Kafka Broker | 2Gi |
 
 **Total estimated**: ~4-5GB for infrastructure
 
