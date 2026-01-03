@@ -133,17 +133,20 @@ Write-Host "  Spark apps deployed (3) + services exposed" -ForegroundColor Green
 Write-Host "`n[7/10] Waiting for Spark drivers to start (this may take 2-3 minutes)..." -ForegroundColor Yellow
 $timeout = 600
 $elapsed = 0
+# Temporarily allow errors (kubectl returns "No resources found" as stderr on first run)
+$ErrorActionPreference = "Continue"
 while ($elapsed -lt $timeout) {
-    $drivers = kubectl get pods -l spark-role=driver --no-headers 2>$null | Select-String "Running"
+    $drivers = kubectl get pods -l spark-role=driver --no-headers 2>&1 | Select-String "Running"
     $driverCount = ($drivers | Measure-Object).Count
-    if ($driverCount -ge 2) {
-        Write-Host "  Spark drivers are running ($driverCount/2)" -ForegroundColor Green
+    if ($driverCount -ge 3) {
+        Write-Host "  Spark drivers are running ($driverCount/3)" -ForegroundColor Green
         break
     }
     Start-Sleep -Seconds 10
     $elapsed += 10
-    Write-Host "  Waiting for Spark drivers... ($elapsed s, $driverCount/2 running)" -ForegroundColor Gray
+    Write-Host "  Waiting for Spark drivers... ($elapsed s, $driverCount/3 running)" -ForegroundColor Gray
 }
+$ErrorActionPreference = "Stop"
 if ($elapsed -ge $timeout) {
     Write-Host "WARNING: Not all Spark drivers started within $timeout seconds" -ForegroundColor Yellow
 }

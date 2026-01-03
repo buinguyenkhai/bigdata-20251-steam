@@ -10,7 +10,7 @@ metadata:
 spec:
   type: NodePort
   selector:
-    sparkapplication: steam-charts-app
+    spark-app-name: steam-charts-app
     spark-role: driver
   ports:
     - name: spark-ui
@@ -31,7 +31,7 @@ metadata:
 spec:
   type: NodePort
   selector:
-    sparkapplication: steam-reviews-app
+    spark-app-name: steam-reviews-app
     spark-role: driver
   ports:
     - name: spark-ui
@@ -52,7 +52,7 @@ metadata:
 spec:
   type: NodePort
   selector:
-    sparkapplication: steam-players-app
+    spark-app-name: steam-players-app
     spark-role: driver
   ports:
     - name: spark-ui
