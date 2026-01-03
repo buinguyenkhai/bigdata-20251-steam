@@ -1,9 +1,9 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: steam-producer-charts
+  name: steam-producer-players
 spec:
-  schedule: "*/15 * * * *"  # Every 15 minutes (game metadata changes less frequently)
+  schedule: "*/5 * * * *"  # Every 5 minutes (player counts change frequently)
   concurrencyPolicy: Forbid
   jobTemplate:
     spec:
@@ -11,7 +11,7 @@ spec:
       template:
         metadata:
           labels:
-            app: steam-producer-charts
+            app: steam-producer-players
         spec:
           securityContext:
             fsGroup: 1000
@@ -37,7 +37,7 @@ spec:
             - name: steam-producer
               image: steam-producer:latest
               imagePullPolicy: IfNotPresent
-              command: ["python", "-u", "producer_charts.py"]
+              command: ["python", "-u", "producer_players.py"]
               volumeMounts:
                 - name: tls
                   mountPath: /stackable/tls

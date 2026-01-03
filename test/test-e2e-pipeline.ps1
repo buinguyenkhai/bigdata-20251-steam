@@ -89,8 +89,8 @@ if (-not $kafkaReady) {
 Write-Host "  Kafka is ready. Creating topics..." -ForegroundColor Gray
 try {
     # Create topics using the SSL base command
-    kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c "$kafkaCmdBase --create --topic game_info --partitions 3 --replication-factor 1 --if-not-exists; $kafkaCmdBase --create --topic game_comments --partitions 3 --replication-factor 1 --if-not-exists" 2>&1 | Out-Null
-    Write-Host "  Topics ready: game_info, game_comments" -ForegroundColor Green
+    kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c "$kafkaCmdBase --create --topic game_info --partitions 3 --replication-factor 1 --if-not-exists; $kafkaCmdBase --create --topic game_comments --partitions 3 --replication-factor 1 --if-not-exists; $kafkaCmdBase --create --topic game_player_count --partitions 3 --replication-factor 1 --if-not-exists" 2>&1 | Out-Null
+    Write-Host "  Topics ready: game_info, game_comments, game_player_count" -ForegroundColor Green
 } catch {
     Write-Host "ERROR: Failed to create topics." -ForegroundColor Red
     Write-Host $_
@@ -189,8 +189,10 @@ Write-Host "`n  [HDFS Cold Storage]" -ForegroundColor Cyan
 # FIX: Added '-c namenode' to prevent "Defaulted container" warning which crashes PowerShell
 $hdfsCharts = kubectl exec simple-hdfs-namenode-default-0 -c namenode -- hdfs dfs -ls /user/stackable/archive/charts/ 2>$null | Select-String "parquet"
 $hdfsReviews = kubectl exec simple-hdfs-namenode-default-0 -c namenode -- hdfs dfs -ls /user/stackable/archive/reviews/ 2>$null | Select-String "parquet"
+$hdfsPlayers = kubectl exec simple-hdfs-namenode-default-0 -c namenode -- hdfs dfs -ls /user/stackable/archive/players/ 2>$null | Select-String "parquet"
 $chartsCount = ($hdfsCharts | Measure-Object).Count
 $reviewsCount = ($hdfsReviews | Measure-Object).Count
+$playersCount = ($hdfsPlayers | Measure-Object).Count
 
 if ($chartsCount -gt 0) {
     Write-Host "    [OK] Charts data: $chartsCount parquet files" -ForegroundColor Green
@@ -204,17 +206,26 @@ if ($reviewsCount -gt 0) {
     Write-Host "    [FAIL] Reviews data: No files found" -ForegroundColor Red
 }
 
+if ($playersCount -gt 0) {
+    Write-Host "    [OK] Players data: $playersCount parquet files" -ForegroundColor Green
+} else {
+    Write-Host "    [WARN] Players data: No files yet (CronJob may not have run)" -ForegroundColor Yellow
+}
+
 # Check MongoDB
 Write-Host "`n  [MongoDB Hot Storage]" -ForegroundColor Cyan
 $mongoPod = kubectl get pods -l app=mongodb -o jsonpath='{.items[0].metadata.name}' 2>$null
 if ($mongoPod) {
     $chartsDocsRaw = kubectl exec $mongoPod -- mongosh game_analytics --quiet --eval "db.steam_charts.countDocuments()" 2>$null
     $reviewsDocsRaw = kubectl exec $mongoPod -- mongosh game_analytics --quiet --eval "db.steam_reviews.countDocuments()" 2>$null
+    $playersDocsRaw = kubectl exec $mongoPod -- mongosh bigdata --quiet --eval "db.steam_players.countDocuments()" 2>$null
     # Handle multi-line output - take last non-empty line and extract number
     $chartsDocsLine = ($chartsDocsRaw | Where-Object { $_ -match '\d+' } | Select-Object -Last 1) -replace '\D', ''
     $reviewsDocsLine = ($reviewsDocsRaw | Where-Object { $_ -match '\d+' } | Select-Object -Last 1) -replace '\D', ''
+    $playersDocsLine = ($playersDocsRaw | Where-Object { $_ -match '\d+' } | Select-Object -Last 1) -replace '\D', ''
     if ($chartsDocsLine) { $chartsDocs = [int]$chartsDocsLine } else { $chartsDocs = 0 }
     if ($reviewsDocsLine) { $reviewsDocs = [int]$reviewsDocsLine } else { $reviewsDocs = 0 }
+    if ($playersDocsLine) { $playersDocs = [int]$playersDocsLine } else { $playersDocs = 0 }
     
     if ($chartsDocs -gt 0) {
         Write-Host "    [OK] steam_charts: $chartsDocs aggregated documents" -ForegroundColor Green
@@ -226,6 +237,12 @@ if ($mongoPod) {
         Write-Host "    [OK] steam_reviews: $reviewsDocs aggregated documents" -ForegroundColor Green
     } else {
         Write-Host "    [FAIL] steam_reviews: No documents found" -ForegroundColor Red
+    }
+    
+    if ($playersDocs -gt 0) {
+        Write-Host "    [OK] steam_players: $playersDocs aggregated documents" -ForegroundColor Green
+    } else {
+        Write-Host "    [WARN] steam_players: No documents yet (CronJob may not have run)" -ForegroundColor Yellow
     }
 } else {
     Write-Host "    [FAIL] MongoDB pod not found" -ForegroundColor Red
@@ -242,9 +259,9 @@ $mongoPass = ($chartsDocs -gt 0) -and ($reviewsDocs -gt 0)
 Write-Host ""
 Write-Host "  Pipeline Components:" -ForegroundColor White
 Write-Host "    MongoDB:        Running" -ForegroundColor Green
-Write-Host "    Kafka Topics:   game_info, game_comments" -ForegroundColor Green
+Write-Host "    Kafka Topics:   game_info, game_comments, game_player_count" -ForegroundColor Green
 Write-Host "    Steam Producer: Completed" -ForegroundColor Green
-Write-Host "    Spark Apps:     Running" -ForegroundColor Green
+Write-Host "    Spark Apps:     Running (3)" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Data Verification:" -ForegroundColor White
 if ($hdfsPass) {
