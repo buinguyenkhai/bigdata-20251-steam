@@ -20,6 +20,10 @@ spec:
 
   sparkConf:
     spark.app.name: "SteamCharts"
+    # Memory optimization for local dev
+    spark.driver.memory: "512m"
+    spark.executor.memory: "512m"
+    spark.executor.instances: "1"
     # Enable Spark UI for monitoring
     spark.ui.enabled: "true"
     spark.ui.port: "4040" 

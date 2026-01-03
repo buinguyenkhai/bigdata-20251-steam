@@ -114,7 +114,8 @@ if (-not $sparkApps) {
 Write-Host "`n[5/5] Deploying Producer CronJobs..." -ForegroundColor Yellow
 kubectl apply -f "$rootDir\k8s\producers\steam-cronjob.yaml" 2>$null | Out-Null
 kubectl apply -f "$rootDir\k8s\producers\steam-cronjob-charts.yaml" 2>$null | Out-Null
-Write-Host "  CronJobs deployed" -ForegroundColor Green
+kubectl apply -f "$rootDir\k8s\producers\steam-cronjob-players.yaml" 2>$null | Out-Null
+Write-Host "  CronJobs deployed (reviews, charts, players)" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
