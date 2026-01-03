@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Generate the ConfigMaps from local files
+configMapGenerator:
+  - name: grafana-datasource
+    files:
+      - provisioning/datasources/datasource.yml
+  - name: grafana-dashboards
+    files:
+      - provisioning/dashboards/dashboard.yml
+      - provisioning/dashboards/mongodb_dashboard.json
+      - provisioning/dashboards/prometheus_dashboard.json
+
+resources:
+  - k8s/monitoring/grafana/grafana-deployment.yaml
+
+# To enable Grafana, run "kubectl apply -k ."
+# To clear Grafana resources, run "kubectl delete -k ."
