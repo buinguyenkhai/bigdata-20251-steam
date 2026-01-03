@@ -18,13 +18,13 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 1,
+  "id": null,
   "links": [],
   "panels": [
     {
       "datasource": {
         "type": "grafana-mongodb-opensource-datasource",
-        "uid": "P91231FF9AB6685FA"
+        "uid": "${DS_MONGODB}"
       },
       "fieldConfig": {
         "defaults": {
@@ -35,72 +35,37 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {
-                "color": "green"
-              },
-              {
-                "color": "red",
-                "value": 10
-              },
-              {
-                "color": "#EAB839",
-                "value": 20
-              },
-              {
-                "color": "#6ED0E0",
-                "value": 30
-              }
+              { "color": "green" },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 500 }
             ]
-          }
+          },
+          "unit": "none"
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 0
-      },
-      "id": 2,
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "percentChangeColorMode": "standard",
         "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
+          "calcs": ["lastNotNull"],
           "fields": "",
           "values": false
         },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
+        "textMode": "auto"
       },
-      "pluginVersion": "11.6.5",
+      "title": "📝 Total Reviews",
+      "description": "Total number of reviews processed",
       "targets": [
         {
           "rawQuery": true,
           "refId": "A",
-          "target": "db.air_quality_logs.aggregate([\n  {\n    // 1. Sort by time descending to get newest data first\n    \"$sort\": { \"time\": -1 }\n  },\n  {\n    // 2. Group by city and take the first (newest) record found\n    \"$group\": {\n      \"_id\": \"$city\",\n      \"latest_pm25\": { \"$first\": \"$pm2_5\" },\n      \"latest_time\": { \"$first\": \"$time\" }\n    }\n  },\n  {\n    // 3. Rename fields for Grafana\n    \"$project\": {\n      \"_id\": 0,\n      \"city\": \"$_id\",\n      \"value\": \"$latest_pm25\"\n    }\n  }\n])",
+          "target": "db.steam_reviews.aggregate([\n  { \"$group\": { \"_id\": null, \"value\": { \"$sum\": \"$total_reviews\" } } },\n  { \"$project\": { \"_id\": 0 } }\n])",
           "type": "table"
-        }
-      ],
-      "title": "Panel Title",
-      "transformations": [
-        {
-          "id": "partitionByValues",
-          "options": {
-            "fields": [
-              "city"
-            ],
-            "keepFields": true,
-            "naming": {
-              "asLabels": false
-            }
-          }
         }
       ],
       "type": "stat"
@@ -108,7 +73,291 @@
     {
       "datasource": {
         "type": "grafana-mongodb-opensource-datasource",
-        "uid": "P91231FF9AB6685FA"
+        "uid": "${DS_MONGODB}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue" },
+              { "color": "green", "value": 10 },
+              { "color": "yellow", "value": 20 }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "title": "🎮 Game Genres",
+      "description": "Number of unique game genres tracked",
+      "targets": [
+        {
+          "rawQuery": true,
+          "refId": "A",
+          "target": "db.steam_charts.aggregate([\n  { \"$count\": \"value\" }\n])",
+          "type": "table"
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-mongodb-opensource-datasource",
+        "uid": "${DS_MONGODB}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green" },
+              { "color": "yellow", "value": 1000 },
+              { "color": "red", "value": 5000 }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "title": "👥 Peak Players",
+      "description": "Maximum concurrent players recorded",
+      "targets": [
+        {
+          "rawQuery": true,
+          "refId": "A",
+          "target": "db.steam_players.aggregate([\n  { \"$group\": { \"_id\": null, \"value\": { \"$max\": \"$max_players\" } } },\n  { \"$project\": { \"_id\": 0 } }\n])",
+          "type": "table"
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-mongodb-opensource-datasource",
+        "uid": "${DS_MONGODB}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "purple" }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "title": "📊 Data Windows",
+      "description": "Total aggregation windows processed",
+      "targets": [
+        {
+          "rawQuery": true,
+          "refId": "A",
+          "target": "db.steam_reviews.aggregate([\n  { \"$count\": \"value\" }\n])",
+          "type": "table"
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-mongodb-opensource-datasource",
+        "uid": "${DS_MONGODB}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Reviews",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green" }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": ["sum", "mean"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "title": "📈 Review Trends Over Time",
+      "description": "Review counts by sentiment over hourly windows",
+      "targets": [
+        {
+          "rawQuery": true,
+          "refId": "A",
+          "target": "db.steam_reviews.aggregate([\n  {\n    \"$project\": {\n      \"time\": \"$window.start\",\n      \"value\": \"$total_reviews\",\n      \"__metric\": { \"$cond\": [\"$recommended\", \"👍 Positive\", \"👎 Negative\"] },\n      \"_id\": 0\n    }\n  },\n  { \"$sort\": { \"time\": 1 } }\n])",
+          "type": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": ["__metric"],
+            "keepFields": false
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-mongodb-opensource-datasource",
+        "uid": "${DS_MONGODB}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Players",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "hue",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green" }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": ["max", "mean"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "title": "👥 Player Count Trends",
+      "description": "Maximum players per game over 10-minute windows",
+      "targets": [
+        {
+          "rawQuery": true,
+          "refId": "A",
+          "target": "db.steam_players.aggregate([\n  {\n    \"$project\": {\n      \"time\": \"$window.start\",\n      \"value\": \"$max_players\",\n      \"__metric\": { \"$concat\": [\"App \", { \"$toString\": \"$appid\" }] },\n      \"_id\": 0\n    }\n  },\n  { \"$sort\": { \"time\": 1 } }\n])",
+          "type": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": ["__metric"],
+            "keepFields": false
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-mongodb-opensource-datasource",
+        "uid": "${DS_MONGODB}"
       },
       "fieldConfig": {
         "defaults": {
@@ -121,103 +370,180 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
+            "fillOpacity": 80,
+            "gradientMode": "hue",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
             "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "scaleDistribution": { "type": "linear" },
+            "thresholdsStyle": { "mode": "off" }
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
-            "steps": [
-              {
-                "color": "green"
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
+            "steps": [{ "color": "green" }]
           }
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 8
-      },
-      "id": 1,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "id": 7,
       "options": {
+        "barRadius": 0.1,
+        "barWidth": 0.8,
+        "groupWidth": 0.7,
         "legend": {
           "calcs": [],
           "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+          "placement": "right",
+          "showLegend": false
         },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        }
+        "orientation": "horizontal",
+        "showValue": "always",
+        "stacking": "none",
+        "tooltip": { "mode": "single", "sort": "none" },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
       },
-      "pluginVersion": "11.6.5",
+      "title": "🎮 Top Game Genres",
+      "description": "Most popular game genres by title count",
       "targets": [
         {
-          "datasource": {
-            "type": "grafana-mongodb-opensource-datasource",
-            "uid": "P91231FF9AB6685FA"
-          },
           "rawQuery": true,
           "refId": "A",
-          "target": "db.weather_logs.aggregate([\n  {\n    \"$project\": {\n      \"time\": { \"$toDate\": \"$time\" },\n      \"value\": \"$temperature_2m\",\n      \"__metric\": \"$city\",\n      \"_id\": 0\n    }\n  },\n  { \"$sort\": { \"time\": 1 } }\n])",
+          "target": "db.steam_charts.aggregate([\n  { \"$sort\": { \"total_games\": -1 } },\n  { \"$limit\": 10 },\n  {\n    \"$project\": {\n      \"genre\": 1,\n      \"value\": \"$total_games\",\n      \"_id\": 0\n    }\n  }\n])",
           "type": "table"
         }
       ],
-      "title": "Label",
       "transformations": [
         {
-          "id": "partitionByValues",
+          "id": "convertFieldType",
           "options": {
-            "fields": [
-              "__metric"
-            ],
-            "keepFields": false,
-            "naming": {
-              "asLabels": false
-            }
+            "conversions": [
+              { "destinationType": "string", "targetField": "genre" }
+            ]
           }
         }
       ],
-      "type": "timeseries"
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-mongodb-opensource-datasource",
+        "uid": "${DS_MONGODB}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }
+          },
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Positive" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Negative" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 12 },
+      "id": 8,
+      "options": {
+        "displayLabels": ["name", "percent"],
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "values": ["value", "percent"]
+        },
+        "pieType": "donut",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": true
+        },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "title": "💭 Review Sentiment",
+      "description": "Distribution of positive vs negative reviews",
+      "targets": [
+        {
+          "rawQuery": true,
+          "refId": "A",
+          "target": "db.steam_reviews.aggregate([\n  {\n    \"$group\": {\n      \"_id\": \"$recommended\",\n      \"total\": { \"$sum\": \"$total_reviews\" }\n    }\n  },\n  {\n    \"$project\": {\n      \"sentiment\": { \"$cond\": [\"$_id\", \"Positive\", \"Negative\"] },\n      \"value\": \"$total\",\n      \"_id\": 0\n    }\n  }\n])",
+          "type": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              { "fieldName": "sentiment", "handlerKey": "field.name" },
+              { "fieldName": "value", "handlerKey": "field.value" }
+            ]
+          }
+        }
+      ],
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-mongodb-opensource-datasource",
+        "uid": "${DS_MONGODB}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green" }]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "max_players" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "mode": "gradient", "type": "gauge" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 12 },
+      "id": 9,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "enablePagination": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true
+      },
+      "title": "🏆 Top Games by Player Count",
+      "description": "Games with highest peak concurrent players",
+      "targets": [
+        {
+          "rawQuery": true,
+          "refId": "A",
+          "target": "db.steam_players.aggregate([\n  {\n    \"$group\": {\n      \"_id\": \"$appid\",\n      \"max_players\": { \"$max\": \"$max_players\" },\n      \"avg_players\": { \"$avg\": \"$avg_players\" }\n    }\n  },\n  { \"$sort\": { \"max_players\": -1 } },\n  { \"$limit\": 10 },\n  {\n    \"$project\": {\n      \"app_id\": \"$_id\",\n      \"max_players\": 1,\n      \"avg_players\": { \"$round\": [\"$avg_players\", 0] },\n      \"_id\": 0\n    }\n  }\n])",
+          "type": "table"
+        }
+      ],
+      "type": "table"
     }
   ],
   "preload": false,
   "schemaVersion": 41,
-  "tags": [],
+  "tags": ["steam", "analytics", "mongodb"],
   "templating": {
     "list": []
   },
@@ -227,7 +553,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "mongodb",
-  "uid": "af8ru4b2h222oa",
-  "version": 2
+  "title": "Steam Analytics Dashboard",
+  "uid": "steam-analytics-mongodb",
+  "version": 1
 }
