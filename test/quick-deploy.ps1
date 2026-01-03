@@ -8,6 +8,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$rootDir = "$PSScriptRoot\.."
 
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "   Quick Deploy - Steam Analytics Pipeline  " -ForegroundColor Cyan
@@ -20,8 +21,8 @@ if ($Full) {
 
 # Step 1: Apply configurations (fast)
 Write-Host "`n[1/5] Applying ConfigMaps..." -ForegroundColor Yellow
-kubectl apply -f "$PSScriptRoot\..\kafka-spark-configmap.yaml" | Out-Null
-kubectl apply -f "$PSScriptRoot\..\expose-services.yaml" 2>$null | Out-Null
+kubectl apply -f "$rootDir\k8s\spark-apps\kafka-spark-configmap.yaml" | Out-Null
+kubectl apply -f "$rootDir\k8s\monitoring\expose-services.yaml" 2>$null | Out-Null
 Write-Host "  ConfigMaps applied" -ForegroundColor Green
 
 # Step 2: Build Docker image (skip if -SkipBuild)
@@ -31,7 +32,7 @@ if (-not $SkipBuild) {
         Write-Host "`n[2/5] Docker image exists (use -SkipBuild to always skip)" -ForegroundColor Green
     } else {
         Write-Host "`n[2/5] Building Docker image..." -ForegroundColor Yellow
-        Push-Location "$PSScriptRoot\.."
+        Push-Location $rootDir
         docker build -t steam-producer:latest . 2>&1 | Out-Null
         Pop-Location
         Write-Host "  Docker image built" -ForegroundColor Green
@@ -42,12 +43,13 @@ if (-not $SkipBuild) {
 
 # Step 3: Delete old Spark apps (for clean restart)
 Write-Host "`n[3/5] Restarting Spark apps..." -ForegroundColor Yellow
-kubectl delete sparkapplication steam-charts-app steam-reviews-app --ignore-not-found 2>$null | Out-Null
+kubectl delete sparkapplication steam-charts-app steam-reviews-app steam-players-app --ignore-not-found 2>$null | Out-Null
 Start-Sleep -Seconds 2
 
 # Step 4: Deploy Spark apps
-kubectl apply -f "$PSScriptRoot\..\steam-charts-app.yaml" 2>$null | Out-Null
-kubectl apply -f "$PSScriptRoot\..\steam-reviews-app.yaml" 2>$null | Out-Null
+kubectl apply -f "$rootDir\k8s\spark-apps\steam-charts-app.yaml" 2>$null | Out-Null
+kubectl apply -f "$rootDir\k8s\spark-apps\steam-reviews-app.yaml" 2>$null | Out-Null
+kubectl apply -f "$rootDir\k8s\spark-apps\steam-players-app.yaml" 2>$null | Out-Null
 Write-Host "  Spark apps deployed" -ForegroundColor Green
 
 # Step 5: Wait for drivers
@@ -78,6 +80,6 @@ Write-Host "  Quick deploy complete! " -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor White
-Write-Host "  - Run producer: kubectl apply -f steam-job.yaml" -ForegroundColor Gray
+Write-Host "  - Deploy CronJobs: kubectl apply -f k8s/producers/" -ForegroundColor Gray
 Write-Host "  - View Spark logs: kubectl logs -l spark-role=driver -f" -ForegroundColor Gray
 Write-Host "  - Full E2E test: .\test\test-e2e-pipeline.ps1" -ForegroundColor Gray

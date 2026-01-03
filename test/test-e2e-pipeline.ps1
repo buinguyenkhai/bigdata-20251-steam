@@ -1,6 +1,7 @@
 ﻿# test-e2e-pipeline.ps1
 # End-to-End Pipeline Test: Steam API → Kafka → Spark → HDFS + MongoDB
 $ErrorActionPreference = "Stop"
+$rootDir = "$PSScriptRoot\.."
 
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "   Steam Analytics Pipeline - E2E Test     " -ForegroundColor Cyan
@@ -26,7 +27,7 @@ Write-Host "  Infrastructure pods OK" -ForegroundColor Green
 
 # --- Step 2: Deploy MongoDB ---
 Write-Host "`n[2/10] Deploying MongoDB..." -ForegroundColor Yellow
-kubectl apply -f mongodb.yaml 2>$null | Out-Null
+kubectl apply -f "$rootDir\k8s\infrastructure\mongodb.yaml" 2>$null | Out-Null
 $timeout = 120
 $elapsed = 0
 while ($elapsed -lt $timeout) {
@@ -117,14 +118,15 @@ if ($existingImage -eq "steam-producer:latest") {
 
 # --- Step 5: Deploy Spark ConfigMaps ---
 Write-Host "`n[5/10] Deploying Spark ConfigMaps..." -ForegroundColor Yellow
-kubectl apply -f kafka-spark-configmap.yaml 2>$null | Out-Null
+kubectl apply -f "$rootDir\k8s\spark-apps\kafka-spark-configmap.yaml" 2>$null | Out-Null
 Write-Host "  ConfigMaps deployed" -ForegroundColor Green
 
 # --- Step 6: Deploy Spark streaming apps ---
 Write-Host "`n[6/10] Deploying Spark streaming apps..." -ForegroundColor Yellow
-kubectl apply -f steam-reviews-app.yaml 2>$null | Out-Null
-kubectl apply -f steam-charts-app.yaml 2>$null | Out-Null
-Write-Host "  Spark apps deployed" -ForegroundColor Green
+kubectl apply -f "$rootDir\k8s\spark-apps\steam-reviews-app.yaml" 2>$null | Out-Null
+kubectl apply -f "$rootDir\k8s\spark-apps\steam-charts-app.yaml" 2>$null | Out-Null
+kubectl apply -f "$rootDir\k8s\spark-apps\steam-players-app.yaml" 2>$null | Out-Null
+Write-Host "  Spark apps deployed (3)" -ForegroundColor Green
 
 # --- Step 7: Wait for Spark drivers to start ---
 Write-Host "`n[7/10] Waiting for Spark drivers to start (this may take 2-3 minutes)..." -ForegroundColor Yellow
@@ -145,23 +147,26 @@ if ($elapsed -ge $timeout) {
     Write-Host "WARNING: Not all Spark drivers started within $timeout seconds" -ForegroundColor Yellow
 }
 
-# --- Step 8: Run Steam Producer ---
-Write-Host "`n[8/10] Running Steam producer job..." -ForegroundColor Yellow
-kubectl delete job steam-producer --ignore-not-found 2>$null | Out-Null
+# --- Step 8: Deploy and Trigger Producer ---
+Write-Host "`n[8/10] Deploying and triggering producer..." -ForegroundColor Yellow
+kubectl apply -f "$rootDir\k8s\producers\steam-cronjob.yaml" 2>$null | Out-Null
+kubectl delete job e2e-test-producer --ignore-not-found 2>$null | Out-Null
 Start-Sleep -Seconds 2
-kubectl apply -f steam-job.yaml 2>$null | Out-Null
+kubectl create job --from=cronjob/steam-producer-reviews e2e-test-producer 2>$null | Out-Null
 
 # Wait for producer to complete
-$timeout = 120
+$timeout = 180
 $elapsed = 0
 while ($elapsed -lt $timeout) {
-    $producerStatus = kubectl get pods -l job-name=steam-producer -o jsonpath='{.items[0].status.phase}' 2>$null
-    if ($producerStatus -eq "Succeeded") {
+    $producerStatus = kubectl get job e2e-test-producer -o jsonpath='{.status.succeeded}' 2>$null
+    if ($producerStatus -eq "1") {
         Write-Host "  Producer completed successfully" -ForegroundColor Green
         break
-    } elseif ($producerStatus -eq "Failed") {
+    }
+    $failedStatus = kubectl get job e2e-test-producer -o jsonpath='{.status.failed}' 2>$null
+    if ($failedStatus -gt 0) {
         Write-Host "ERROR: Producer job failed" -ForegroundColor Red
-        kubectl logs -l job-name=steam-producer --tail=20
+        kubectl logs -l job-name=e2e-test-producer --tail=20
         exit 1
     }
     Start-Sleep -Seconds 10

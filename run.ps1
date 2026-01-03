@@ -79,35 +79,30 @@ if ($existingImage -eq "steam-producer:latest") {
     Log-Success "Docker build complete."
 }
 
-# --- 4. Deploy Jobs ---
-Log-Info "Cleaning up old jobs..."
-kubectl delete job steam-producer-reviews --ignore-not-found 2>$null | Out-Null
-kubectl delete cronjob steam-producer-players --ignore-not-found 2>$null | Out-Null
-# Also clean up manual manual player job if it exists
-kubectl delete job steam-producer-players-manual --ignore-not-found 2>$null | Out-Null
-
-Log-Info "Deploying Jobs..."
-kubectl apply -f job-reviews.yaml
-kubectl apply -f cronjob-players.yaml
+# --- 4. Deploy CronJobs ---
+Log-Info "Deploying CronJobs..."
+kubectl apply -f k8s/producers/steam-cronjob.yaml
+kubectl apply -f k8s/producers/steam-cronjob-charts.yaml
 
 # Trigger CronJob immediately for testing
-Log-Info "Manually triggering player producer job..."
-kubectl create job --from=cronjob/steam-producer-players steam-producer-players-manual
+Log-Info "Manually triggering reviews producer job..."
+kubectl delete job steam-producer-reviews-manual --ignore-not-found 2>$null | Out-Null
+kubectl create job --from=cronjob/steam-producer-reviews steam-producer-reviews-manual
 
 # --- 5. Monitor Execution ---
-Log-Info "Waiting for 'steam-producer-reviews' to complete..."
+Log-Info "Waiting for 'steam-producer-reviews-manual' to complete..."
 $timeout = 180 # 3 minutes
 $elapsed = 0
 while ($elapsed -lt $timeout) {
-    $status = kubectl get job steam-producer-reviews -o jsonpath='{.status.succeeded}' 2>$null
+    $status = kubectl get job steam-producer-reviews-manual -o jsonpath='{.status.succeeded}' 2>$null
     if ($status -eq "1") {
         Log-Success "Reviews Producer Job Completed!"
         break
     }
-    $failed = kubectl get job steam-producer-reviews -o jsonpath='{.status.failed}' 2>$null
+    $failed = kubectl get job steam-producer-reviews-manual -o jsonpath='{.status.failed}' 2>$null
     if ($failed -gt 0) {
         Log-Error "Reviews Producer Job Failed. Checking logs..."
-        kubectl logs -l job-name=steam-producer-reviews --tail=50
+        kubectl logs -l job-name=steam-producer-reviews-manual --tail=50
         exit 1
     }
     
@@ -115,12 +110,6 @@ while ($elapsed -lt $timeout) {
     $elapsed += 5
     if ($elapsed % 15 -eq 0) { Write-Host "Running... ($elapsed s)" -ForegroundColor Gray }
 }
-
-Log-Info "Checking manual player job..."
-# We don't wait strictly for this one as it might be faster or slower, but we check if it's running
-$pStatus = kubectl get job steam-producer-players-manual -o jsonpath='{.status.active}' 2>$null
-if ($pStatus -eq "1") { Log-Info "Player producer is still running (this is normal)." }
-else { Log-Success "Player producer finished." }
 
 # --- 6. Quick Verification ---
 Log-Info "Verifying Kafka Messages..."

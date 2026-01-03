@@ -69,10 +69,7 @@ spec:
                       name: steam-producer-config
                       key: KAFKA_SECURITY_PROTOCOL
                 - name: KAFKA_SSL_CA_LOCATION
-                  valueFrom:
-                    configMapKeyRef:
-                      name: steam-producer-config
-                      key: KAFKA_SSL_CA_LOCATION
+                  value: "/stackable/tls/ca.crt"
               resources:
                 requests:
                   cpu: 200m
