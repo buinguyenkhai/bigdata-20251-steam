@@ -15,7 +15,7 @@ kubectl delete sparkapplication steam-reviews-app steam-charts-app steam-players
 Write-Host "  Spark apps stopped" -ForegroundColor Green
 
 Write-Host "[2/4] Stopping producer CronJobs..." -ForegroundColor Yellow
-kubectl delete cronjob steam-producer-reviews steam-producer-charts --ignore-not-found 2>$null | Out-Null
+kubectl delete cronjob steam-producer-reviews steam-producer-charts steam-producer-players --ignore-not-found 2>$null | Out-Null
 Write-Host "  CronJobs stopped" -ForegroundColor Green
 
 Write-Host "[3/4] Cleaning up any running jobs..." -ForegroundColor Yellow
