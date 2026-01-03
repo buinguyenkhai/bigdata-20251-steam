@@ -122,19 +122,17 @@ To save memory and avoid re-pulling images:
 
 > **Tip**: Use `stop-pipeline.ps1` when you're done working. It preserves all data (MongoDB, HDFS) and cached Docker images, so resuming is fast (~2-3 minutes vs ~5-10 minutes for full setup).
 
-### 3. Run Individual Component Tests (For Debugging)
+### 3. Verify Pipeline Status
 ```powershell
-.\test\test-hdfs.ps1             # Test HDFS read/write (~2 min)
-.\test\test-kafka.ps1            # Test Kafka produce/consume (~2 min)
-.\test\test-spark-kafka-app.ps1  # Test Spark streaming (~3 min)
-.\test\test-all.ps1              # Run all individual tests
+kubectl get pods                              # Check all pods
+kubectl get cronjobs                          # Check producer schedules
+.\test\verify-kafka-state.ps1                 # Check Kafka topics have data
 ```
 
 ### 4. Manual Pipeline Deployment
 ```powershell
-# 1. Deploy MongoDB + Mongo Express
-kubectl apply -f mongodb.yaml
-kubectl apply -f mongo-express-deployment.yaml
+# 1. Deploy Infrastructure
+kubectl apply -f k8s/infrastructure/
 
 # 2. Create Kafka topics (using internal port 9092)
 kubectl exec -it simple-kafka-broker-default-0 -c kafka -- bin/kafka-topics.sh `
@@ -142,16 +140,19 @@ kubectl exec -it simple-kafka-broker-default-0 -c kafka -- bin/kafka-topics.sh `
 kubectl exec -it simple-kafka-broker-default-0 -c kafka -- bin/kafka-topics.sh `
   --create --bootstrap-server localhost:9092 --topic game_comments --partitions 3 --replication-factor 1
 
-# 3. Build and run Steam producer (connects via TLS on port 9093)
+# 3. Build Steam producer image
 docker build -t steam-producer:latest .
-kubectl apply -f steam-job.yaml
 
-# 4. Deploy Spark streaming apps (with TLS truststore init containers)
-kubectl apply -f kafka-spark-configmap.yaml
-kubectl apply -f steam-charts-app.yaml
-kubectl apply -f steam-reviews-app.yaml
+# 4. Deploy Spark streaming apps
+kubectl apply -f k8s/spark-apps/
 
-# 5. Setup MongoDB indexes (for query performance)
+# 5. Deploy Producer CronJobs
+kubectl apply -f k8s/producers/
+
+# 6. Deploy Monitoring (Optional)
+kubectl apply -f k8s/monitoring/
+
+# 7. Setup MongoDB indexes (for query performance)
 powershell -ExecutionPolicy Bypass -File .\test\setup-mongodb-indexes.ps1
 ```
 
@@ -174,45 +175,67 @@ kubectl logs -l job-name=steam-producer --tail=50
 # Check HDFS data
 kubectl exec simple-hdfs-namenode-default-0 -- hdfs dfs -ls /user/stackable/archive/
 
-# Access MongoDB (CLI)
+# Web UIs (via NodePort - no port-forward needed)
+# Spark UI:      http://localhost:30040
+# Mongo Express: http://localhost:30081
+# Grafana:       http://localhost:30300 (after deployment)
+# Prometheus:    http://localhost:30090 (after deployment)
+
+# MongoDB CLI access (still needs port-forward)
 kubectl port-forward svc/mongodb 27017:27017
 # Then: mongosh mongodb://localhost:27017/game_analytics
-
-# Access Mongo Express (Web UI)
-kubectl port-forward svc/mongo-express 8081:8081
-# Then open: http://localhost:8081
 ```
 
 ## Project Structure
 ```
-├── zookeeper.yaml              # Zookeeper cluster (coordination)
-├── kafka.yaml                  # Kafka cluster (messaging, 7-day retention)
-├── kafka-znode.yaml            # Kafka Zookeeper node
-├── hdfs.yaml                   # HDFS cluster (HA mode, cold storage)
-├── hdfs-znode.yaml             # HDFS Zookeeper node
-├── webhdfs.yaml                # WebHDFS helper pod (testing)
-├── mongodb.yaml                # MongoDB (hot storage)
-├── steam-job.yaml              # Steam producer Job + ConfigMap
-├── kafka-spark-configmap.yaml  # Spark processing scripts
-├── kafka-test-configmap.yaml   # Spark test script
-├── kafka-test-app.yaml         # Spark test application
-├── steam-charts-app.yaml       # Spark: game_info → HDFS + MongoDB
-├── steam-reviews-app.yaml      # Spark: game_comments → HDFS + MongoDB
+├── k8s/
+│   ├── infrastructure/         # Core platform services
+│   │   ├── zookeeper.yaml      # ZooKeeper cluster
+│   │   ├── kafka.yaml          # Kafka cluster (7-day retention)
+│   │   ├── kafka-znode.yaml
+│   │   ├── hdfs.yaml           # HDFS cluster (HA mode)
+│   │   ├── hdfs-znode.yaml
+│   │   ├── mongodb.yaml        # MongoDB (hot storage)
+│   │   └── mongo-express-deployment.yaml
+│   │
+│   ├── spark-apps/             # Spark streaming applications
+│   │   ├── kafka-spark-configmap.yaml   # Processing scripts
+│   │   ├── steam-charts-app.yaml        # game_info → HDFS + MongoDB
+│   │   ├── steam-reviews-app.yaml       # game_comments → HDFS + MongoDB
+│   │   └── steam-players-app.yaml       # player_count → HDFS + MongoDB
+│   │
+│   ├── producers/              # Data ingestion CronJobs
+│   │   ├── steam-cronjob.yaml           # Reviews (every 5 min)
+│   │   └── steam-cronjob-charts.yaml    # Charts (every 15 min)
+│   │
+│   └── monitoring/             # Observability stack
+│       ├── prometheus-configmap.yaml
+│       ├── prometheus-deployment.yaml
+│       ├── mongodb-exporter.yaml
+│       ├── expose-services.yaml
+│       └── webhdfs.yaml
+│
+├── producers/                  # Python producer scripts
+│   ├── producer_reviews.py
+│   ├── producer_charts.py
+│   ├── producer_players.py
+│   ├── steam_utils.py
+│   └── processed_appids.txt
+│
+├── test/                       # Test and utility scripts
+│   ├── reset-all.ps1           # Full infrastructure reset
+│   ├── quick-deploy.ps1        # Fast app redeployment
+│   ├── stop-pipeline.ps1       # Graceful shutdown
+│   ├── resume-pipeline.ps1     # Resume from stopped state
+│   ├── test-e2e-pipeline.ps1   # Full E2E test
+│   ├── test-hdfs.ps1
+│   ├── test-kafka.ps1
+│   └── verify-kafka-state.ps1
+│
 ├── Dockerfile                  # Producer container image
-├── .dockerignore               # Docker build exclusions
-├── steam_to_kafka.py           # Steam API → Kafka producer
 ├── requirements.txt            # Python dependencies
-├── inputs/                     # Sample data (reference)
-│   ├── charts/
-│   └── reviews/
-└── test/                       # Test scripts
-    ├── reset-all.ps1           # Full reset (wipes data, redeploys infrastructure)
-    ├── stop-pipeline.ps1       # Gracefully stop (preserves data & images)
-    ├── resume-pipeline.ps1     # Resume from stopped state (no re-pull)
-    ├── test-hdfs.ps1           # HDFS connectivity test
-    ├── test-kafka.ps1          # Kafka produce/consume test
-    ├── test-spark-kafka-app.ps1
-    └── test-e2e-pipeline.ps1   # Full E2E test
+├── run.ps1                     # Main deployment script
+└── README.md
 ```
 
 ## Testing
