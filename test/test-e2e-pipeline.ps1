@@ -126,7 +126,8 @@ Write-Host "`n[6/10] Deploying Spark streaming apps..." -ForegroundColor Yellow
 kubectl apply -f "$rootDir\k8s\spark-apps\steam-reviews-app.yaml" 2>$null | Out-Null
 kubectl apply -f "$rootDir\k8s\spark-apps\steam-charts-app.yaml" 2>$null | Out-Null
 kubectl apply -f "$rootDir\k8s\spark-apps\steam-players-app.yaml" 2>$null | Out-Null
-Write-Host "  Spark apps deployed (3)" -ForegroundColor Green
+kubectl apply -f "$rootDir\k8s\monitoring\expose-services.yaml" 2>$null | Out-Null
+Write-Host "  Spark apps deployed (3) + services exposed" -ForegroundColor Green
 
 # --- Step 7: Wait for Spark drivers to start ---
 Write-Host "`n[7/10] Waiting for Spark drivers to start (this may take 2-3 minutes)..." -ForegroundColor Yellow
