@@ -1,5 +1,5 @@
 ﻿# test-e2e-pipeline.ps1
-# End-to-End Pipeline Test: Steam API → Kafka → Spark → HDFS + MongoDB
+# End-to-End Pipeline Test: Steam API -> Kafka -> Spark -> HDFS + MongoDB
 $ErrorActionPreference = "Stop"
 $rootDir = "$PSScriptRoot\.."
 
@@ -49,48 +49,38 @@ if ($elapsed -ge $timeout) {
 Write-Host "`n[3/10] Creating Kafka topics..." -ForegroundColor Yellow
 
 # 1. Create a custom SSL configuration file inside the container
-# FIX: Added 'ssl.endpoint.identification.algorithm=' to disable hostname verification (fixes "No subject alternative DNS name matching localhost")
 $configCmd = "echo 'security.protocol=SSL' > /tmp/client.properties; echo 'ssl.truststore.location=/stackable/tls-kafka-server/truststore.p12' >> /tmp/client.properties; echo 'ssl.truststore.type=PKCS12' >> /tmp/client.properties; echo 'ssl.truststore.password=' >> /tmp/client.properties; echo 'ssl.keystore.location=/stackable/tls-kafka-server/keystore.p12' >> /tmp/client.properties; echo 'ssl.keystore.type=PKCS12' >> /tmp/client.properties; echo 'ssl.keystore.password=' >> /tmp/client.properties; echo 'ssl.endpoint.identification.algorithm=' >> /tmp/client.properties"
-
-# Execute the file creation
 kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c $configCmd
 
 # Define the base command using the new config file
 $kafkaCmdBase = "kafka-topics.sh --bootstrap-server localhost:9093 --command-config /tmp/client.properties"
 
-# 2. Wait for Kafka to be ready (Retry loop)
+# 2. Wait for Kafka to be ready
 Write-Host "  Waiting for Kafka to be ready..." -ForegroundColor Gray
 $kafkaReady = $false
 for ($i=0; $i -lt 20; $i++) {
     try {
-        # Check listing topics using the SSL config
         kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c "$kafkaCmdBase --list" 2>&1 | Out-Null
-        
         if ($LASTEXITCODE -eq 0) {
             $kafkaReady = $true
             break
         }
-    } catch {
-        # Ignore connection errors during startup
-    }
+    } catch {}
     Start-Sleep -Seconds 5
     Write-Host "." -NoNewline -ForegroundColor Gray
 }
-Write-Host "" # Newline
+Write-Host ""
 
 if (-not $kafkaReady) {
     Write-Host "ERROR: Kafka is not responding on port 9093 (SSL)." -ForegroundColor Red
-    Write-Host "Debugging output:" -ForegroundColor Yellow
-    kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c "$kafkaCmdBase --list"
     exit 1
 }
 
-# 3. Create Topics
+# 3. Create Topics (Added game_player_count to prevent app crash)
 Write-Host "  Kafka is ready. Creating topics..." -ForegroundColor Gray
 try {
-    # Create topics using the SSL base command
-    kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c "$kafkaCmdBase --create --topic game_info --partitions 3 --replication-factor 1 --if-not-exists; $kafkaCmdBase --create --topic game_comments --partitions 3 --replication-factor 1 --if-not-exists" 2>&1 | Out-Null
-    Write-Host "  Topics ready: game_info, game_comments" -ForegroundColor Green
+    kubectl exec simple-kafka-broker-default-0 -c kafka -- sh -c "$kafkaCmdBase --create --topic game_info --partitions 3 --replication-factor 1 --if-not-exists; $kafkaCmdBase --create --topic game_comments --partitions 3 --replication-factor 1 --if-not-exists; $kafkaCmdBase --create --topic game_player_count --partitions 3 --replication-factor 1 --if-not-exists" 2>&1 | Out-Null
+    Write-Host "  Topics ready: game_info, game_comments, game_player_count" -ForegroundColor Green
 } catch {
     Write-Host "ERROR: Failed to create topics." -ForegroundColor Red
     Write-Host $_
@@ -99,7 +89,6 @@ try {
 
 # --- Step 4: Build Docker Image ---
 Write-Host "`n[4/10] Building Steam producer Docker image..." -ForegroundColor Yellow
-# Check if image already exists first (skip build for faster runs)
 $existingImage = docker images steam-producer:latest --format "{{.Repository}}:{{.Tag}}" 2>$null
 if ($existingImage -eq "steam-producer:latest") {
     Write-Host "  Using existing Docker image (skipping build)" -ForegroundColor Green
@@ -133,15 +122,25 @@ Write-Host "`n[7/10] Waiting for Spark drivers to start (this may take 2-3 minut
 $timeout = 600
 $elapsed = 0
 while ($elapsed -lt $timeout) {
-    $drivers = kubectl get pods -l spark-role=driver --no-headers 2>$null | Select-String "Running"
-    $driverCount = ($drivers | Measure-Object).Count
-    if ($driverCount -ge 2) {
-        Write-Host "  Spark drivers are running ($driverCount/2)" -ForegroundColor Green
+    # Added try/catch and '2>&1' to prevent crash when pods aren't found yet
+    $driverCount = 0
+    try {
+        $output = kubectl get pods -l spark-role=driver --no-headers 2>&1
+        if ($LASTEXITCODE -eq 0 -and $output -notmatch "No resources found") {
+            $runningDrivers = $output | Select-String "Running"
+            $driverCount = ($runningDrivers | Measure-Object).Count
+        }
+    } catch {
+        $driverCount = 0
+    }
+
+    if ($driverCount -ge 3) {
+        Write-Host "  Spark drivers are running ($driverCount/3)" -ForegroundColor Green
         break
     }
     Start-Sleep -Seconds 10
     $elapsed += 10
-    Write-Host "  Waiting for Spark drivers... ($elapsed s, $driverCount/2 running)" -ForegroundColor Gray
+    Write-Host "  Waiting for Spark drivers... ($elapsed s, $driverCount/3 running)" -ForegroundColor Gray
 }
 if ($elapsed -ge $timeout) {
     Write-Host "WARNING: Not all Spark drivers started within $timeout seconds" -ForegroundColor Yellow
@@ -149,7 +148,13 @@ if ($elapsed -ge $timeout) {
 
 # --- Step 8: Deploy and Trigger Producer ---
 Write-Host "`n[8/10] Deploying and triggering producer..." -ForegroundColor Yellow
+
+# Apply the CronJobs (This ensures periodic data flow starts)
 kubectl apply -f "$rootDir\k8s\producers\steam-cronjob.yaml" 2>$null | Out-Null
+kubectl apply -f "$rootDir\k8s\producers\steam-cronjob-charts.yaml" 2>$null | Out-Null
+kubectl apply -f "$rootDir\k8s\producers\cronjob-players.yaml" 2>$null | Out-Null
+
+# Clean up and trigger manual Review test job
 kubectl delete job e2e-test-producer --ignore-not-found 2>$null | Out-Null
 Start-Sleep -Seconds 2
 kubectl create job --from=cronjob/steam-producer-reviews e2e-test-producer 2>$null | Out-Null
@@ -186,7 +191,6 @@ Write-Host "`n[10/10] Verifying results..." -ForegroundColor Yellow
 
 # Check HDFS
 Write-Host "`n  [HDFS Cold Storage]" -ForegroundColor Cyan
-# FIX: Added '-c namenode' to prevent "Defaulted container" warning which crashes PowerShell
 $hdfsCharts = kubectl exec simple-hdfs-namenode-default-0 -c namenode -- hdfs dfs -ls /user/stackable/archive/charts/ 2>$null | Select-String "parquet"
 $hdfsReviews = kubectl exec simple-hdfs-namenode-default-0 -c namenode -- hdfs dfs -ls /user/stackable/archive/reviews/ 2>$null | Select-String "parquet"
 $chartsCount = ($hdfsCharts | Measure-Object).Count
@@ -208,9 +212,10 @@ if ($reviewsCount -gt 0) {
 Write-Host "`n  [MongoDB Hot Storage]" -ForegroundColor Cyan
 $mongoPod = kubectl get pods -l app=mongodb -o jsonpath='{.items[0].metadata.name}' 2>$null
 if ($mongoPod) {
+    # Ensure checking the correct DB: game_analytics
     $chartsDocsRaw = kubectl exec $mongoPod -- mongosh game_analytics --quiet --eval "db.steam_charts.countDocuments()" 2>$null
     $reviewsDocsRaw = kubectl exec $mongoPod -- mongosh game_analytics --quiet --eval "db.steam_reviews.countDocuments()" 2>$null
-    # Handle multi-line output - take last non-empty line and extract number
+    
     $chartsDocsLine = ($chartsDocsRaw | Where-Object { $_ -match '\d+' } | Select-Object -Last 1) -replace '\D', ''
     $reviewsDocsLine = ($reviewsDocsRaw | Where-Object { $_ -match '\d+' } | Select-Object -Last 1) -replace '\D', ''
     if ($chartsDocsLine) { $chartsDocs = [int]$chartsDocsLine } else { $chartsDocs = 0 }

@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: steam-producer-players
+spec:
+  schedule: "*/5 * * * *" # Every 5 minutes
+  concurrencyPolicy: Forbid # Don't run concurrent jobs if one takes >5m
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: steam-producer-players
+        spec:
+          containers:
+            - name: steam-players
+              image: steam-producer:latest
+              imagePullPolicy: IfNotPresent
+              command: ["python", "-u", "producer_players.py"]
+              env:
+                - name: BOOTSTRAP_SERVERS
+                  value: "simple-kafka-broker-default-0.simple-kafka-broker-default:9093"
+                - name: KAFKA_SECURITY_PROTOCOL
+                  value: "SSL"
+                - name: KAFKA_SSL_CA_LOCATION
+                  value: "/stackable/tls/ca.crt"
+                # Config Limit
+                - name: MAX_APPS_TO_PROCESS
+                  value: "1000"
+              volumeMounts:
+                - name: tls
+                  mountPath: /stackable/tls
+              resources:
+                requests:
+                  memory: "128Mi"
+                  cpu: "100m"
+                limits:
+                  memory: "256Mi"
+                  cpu: "250m"
+          volumes:
+            - name: tls
+              ephemeral:
+                volumeClaimTemplate:
+                  metadata:
+                    annotations:
+                      secrets.stackable.tech/class: tls
+                      secrets.stackable.tech/scope: pod
+                  spec:
+                    storageClassName: secrets.stackable.tech
+                    accessModes:
+                      - ReadWriteOnce
+                    resources:
+                      requests:
+                        storage: "1"
+          restartPolicy: Never
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000

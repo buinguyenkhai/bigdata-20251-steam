@@ -84,7 +84,7 @@ data:
     query_hot = analytics_df.writeStream \
         .format("mongodb") \
         .option("checkpointLocation", "/user/stackable/checkpoints/reviews_hot") \
-        .option("database", "bigdata") \
+        .option("database", "game_analytics") \
         .option("collection", "steam_reviews") \
         .outputMode("complete") \
         .start()
@@ -165,7 +165,7 @@ data:
     query_hot = analytics_df.writeStream \
         .format("mongodb") \
         .option("checkpointLocation", "/user/stackable/checkpoints/charts_hot") \
-        .option("database", "bigdata") \
+        .option("database", "game_analytics") \
         .option("collection", "steam_charts") \
         .outputMode("complete") \
         .start()
@@ -243,7 +243,7 @@ data:
     query_hot = analytics_df.writeStream \
         .format("mongodb") \
         .option("checkpointLocation", "/user/stackable/checkpoints/players_hot") \
-        .option("database", "bigdata") \
+        .option("database", "game_analytics") \
         .option("collection", "steam_players") \
         .outputMode("complete") \
         .start()
