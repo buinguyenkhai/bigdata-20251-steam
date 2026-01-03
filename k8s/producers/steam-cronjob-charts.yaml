@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: steam-producer-charts
+spec:
+  schedule: "*/15 * * * *"  # Every 15 minutes (game metadata changes less frequently)
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: steam-producer-charts
+        spec:
+          securityContext:
+            fsGroup: 1000
+            runAsUser: 1000
+            runAsGroup: 1000
+          restartPolicy: Never
+          volumes:
+            - name: tls
+              ephemeral:
+                volumeClaimTemplate:
+                  metadata:
+                    annotations:
+                      secrets.stackable.tech/class: tls
+                      secrets.stackable.tech/scope: pod
+                  spec:
+                    storageClassName: secrets.stackable.tech
+                    accessModes:
+                      - ReadWriteOnce
+                    resources:
+                      requests:
+                        storage: "1"
+          containers:
+            - name: steam-producer
+              image: steam-producer:latest
+              imagePullPolicy: IfNotPresent
+              command: ["python", "-u", "producer_charts.py"]
+              volumeMounts:
+                - name: tls
+                  mountPath: /stackable/tls
+              env:
+                - name: BOOTSTRAP_SERVERS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: steam-producer-config
+                      key: BOOTSTRAP_SERVERS
+                - name: KAFKA_SECURITY_PROTOCOL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: steam-producer-config
+                      key: KAFKA_SECURITY_PROTOCOL
+                - name: KAFKA_SSL_CA_LOCATION
+                  value: "/stackable/tls/ca.crt"
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi

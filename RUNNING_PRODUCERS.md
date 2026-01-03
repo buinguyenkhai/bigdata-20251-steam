@@ -1,54 +1,90 @@
 # Running Steam Producers
 
-This guide explains how to run the Steam Reviews and Player Count producers on the local Kubernetes cluster.
+This guide explains how to run the Steam data producers on the Kubernetes cluster.
 
 ## Prerequisites
-- **Docker Desktop** running with Kubernetes enabled.
-- **Kafka** deployed and accessible (SSL/TLS).
-- `processed_appids.txt` populated with the AppIDs you want to scrape.
+- **Docker Desktop** running with Kubernetes enabled
+- **Kafka** deployed and accessible (SSL/TLS)
+- `producers/processed_appids.txt` populated with AppIDs to scrape
 
 ## 1. Build the Docker Image
-You must rebuild the image whenever you modify the Python scripts or `processed_appids.txt`.
+
+Rebuild whenever you modify Python scripts or `processed_appids.txt`:
 
 ```powershell
 docker build -t steam-producer:latest .
 ```
 
-## 2. Deploying the Producers
+## 2. Deploy Producers (CronJobs)
 
-### A. Steam Reviews Producer (Job)
-This runs **once** to fetch Game Info and Reviews. It is a resource-intensive job.
+All producers now run as **CronJobs** for automatic periodic execution:
 
 ```powershell
-kubectl delete job steam-producer-reviews --ignore-not-found
-kubectl apply -f job-reviews.yaml
+# Deploy all producer CronJobs
+kubectl apply -f k8s/producers/
+
+# Or individually:
+kubectl apply -f k8s/producers/steam-cronjob.yaml         # Reviews (every 5 min)
+kubectl apply -f k8s/producers/steam-cronjob-charts.yaml  # Charts (every 15 min)
 ```
-- **Config**: `MAX_APPS_TO_PROCESS` (Default: 100), `MAX_REVIEW_PAGES` (Default: 3).
-- **Check Status**: `kubectl get pods -l job-name=steam-producer-reviews`
 
-### B. Player Count Producer (CronJob)
-This runs **every 5 minutes** to fetch the current player count.
+### CronJob Schedules
+
+| CronJob | Schedule | Script | Description |
+|---------|----------|--------|-------------|
+| `steam-producer-reviews` | `*/5 * * * *` | `producer_reviews.py` | Fetches game reviews |
+| `steam-producer-charts` | `*/15 * * * *` | `producer_charts.py` | Fetches game metadata |
+
+## 3. Manual Trigger (Testing)
+
+Trigger a CronJob immediately without waiting for schedule:
 
 ```powershell
-kubectl apply -f cronjob-players.yaml
+# Trigger reviews producer now
+kubectl create job --from=cronjob/steam-producer-reviews reviews-manual-test
+
+# Trigger charts producer now
+kubectl create job --from=cronjob/steam-producer-charts charts-manual-test
 ```
-- **Schedule**: `*/5 * * * *` (Every 5 minutes).
 
-## 3. Verification
-Use the verification script to check if messages are reaching Kafka.
+## 4. Verification
 
 ```powershell
+# Check CronJob status
+kubectl get cronjobs
+
+# Check recent job runs
+kubectl get jobs | Select-String "steam-producer"
+
+# View producer logs
+kubectl logs -l app=steam-producer-reviews --tail=50
+kubectl logs -l app=steam-producer-charts --tail=50
+
+# Verify Kafka messages
 .\test\verify-kafka-state.ps1
 ```
-Expected output:
-- **game_info**: Low count (1 per game).
-- **game_comments**: High count (many reviews per game).
-- **game_player_count**: Periodic count (1 per game per run).
 
-## 4. Configuration
-You can adjust the following environment variables in `job-reviews.yaml` or `cronjob-players.yaml`:
+## 5. Configuration
 
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `MAX_APPS_TO_PROCESS` | Max number of AppIDs to process from the text file. | 1000 |
-| `MAX_REVIEW_PAGES` | Number of review pages to scrape per game (Reviews Job only). | 3 |
+Environment variables are set via `steam-producer-config` ConfigMap:
+
+| Variable | Description |
+|----------|-------------|
+| `BOOTSTRAP_SERVERS` | Kafka broker address |
+| `KAFKA_SECURITY_PROTOCOL` | `SSL` for TLS connection |
+| `KAFKA_SSL_CA_LOCATION` | Path to CA certificate |
+
+## Project Structure
+
+```
+producers/
+├── producer_reviews.py      # Reviews producer script
+├── producer_charts.py       # Charts/game info producer script
+├── producer_players.py      # Player count producer script
+├── steam_utils.py           # Shared utilities
+└── processed_appids.txt     # AppIDs to process
+
+k8s/producers/
+├── steam-cronjob.yaml       # Reviews CronJob
+└── steam-cronjob-charts.yaml # Charts CronJob
+```

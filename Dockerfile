@@ -17,16 +17,16 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
-COPY steam_to_kafka.py .
-COPY steam_utils.py .
-COPY producer_reviews.py .
-COPY producer_players.py .
-COPY processed_appids.txt .
+# Copy source code from producers/ directory
+COPY producers/steam_utils.py .
+COPY producers/producer_reviews.py .
+COPY producers/producer_players.py .
+COPY producers/producer_charts.py .
+COPY producers/processed_appids.txt .
 
 # Change ownership and switch to non-root user
 RUN chown -R appuser:appuser /app
 USER appuser
 
-# run unbuffered so kubectl logs shows live output
-CMD ["python", "-u", "/app/steam_to_kafka.py"]
+# Default command (can be overridden by CronJob)
+CMD ["python", "-u", "producer_reviews.py"]
