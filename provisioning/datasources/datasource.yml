@@ -8,7 +8,7 @@ datasources:
     isDefault: true
     jsonData:
       mongodb_url: "mongodb://mongodb:27017"
-      mongodb_db: "weather_monitoring"
+      mongodb_db: "steam" # May change later
     editable: true
 
   - name: Prometheus
