@@ -154,6 +154,8 @@ if ($elapsed -ge $timeout) {
 # --- Step 8: Deploy and Trigger Producer ---
 Write-Host "`n[8/10] Deploying and triggering producer..." -ForegroundColor Yellow
 kubectl apply -f "$rootDir\k8s\producers\steam-cronjob.yaml" 2>$null | Out-Null
+kubectl apply -f "$rootDir\k8s\producers\steam-cronjob-players.yaml" 2>$null | Out-Null
+kubectl apply -f "$rootDir\k8s\producers\steam-cronjob-charts.yaml" 2>$null | Out-Null
 kubectl delete job e2e-test-producer --ignore-not-found 2>$null | Out-Null
 Start-Sleep -Seconds 2
 kubectl create job --from=cronjob/steam-producer-reviews e2e-test-producer 2>$null | Out-Null
