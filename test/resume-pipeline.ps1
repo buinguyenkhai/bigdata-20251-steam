@@ -105,7 +105,8 @@ if (-not $sparkApps) {
     kubectl apply -f "$rootDir\k8s\spark-apps\steam-reviews-app.yaml" 2>$null | Out-Null
     kubectl apply -f "$rootDir\k8s\spark-apps\steam-charts-app.yaml" 2>$null | Out-Null
     kubectl apply -f "$rootDir\k8s\spark-apps\steam-players-app.yaml" 2>$null | Out-Null
-    Write-Host "  Spark apps deployed" -ForegroundColor Green
+    kubectl apply -f "$rootDir\k8s\monitoring\expose-services.yaml" 2>$null | Out-Null
+    Write-Host "  Spark apps deployed + services exposed" -ForegroundColor Green
 } else {
     Write-Host "  Spark apps already exist" -ForegroundColor Green
 }

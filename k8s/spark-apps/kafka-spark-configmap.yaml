@@ -75,6 +75,7 @@ data:
     # Write Raw (Cold)
     query_cold = parsed_df.writeStream \
         .format("parquet") \
+        .trigger(processingTime='1 minute') \
         .option("path", "/user/stackable/archive/reviews") \
         .option("checkpointLocation", "/user/stackable/checkpoints/reviews_cold") \
         .outputMode("append") \
@@ -83,8 +84,9 @@ data:
     # Write Aggregated (Hot) -> MongoDB
     query_hot = analytics_df.writeStream \
         .format("mongodb") \
+        .trigger(processingTime='10 seconds') \
         .option("checkpointLocation", "/user/stackable/checkpoints/reviews_hot") \
-        .option("database", "bigdata") \
+        .option("database", "game_analytics") \
         .option("collection", "steam_reviews") \
         .outputMode("complete") \
         .start()
@@ -156,6 +158,7 @@ data:
     # Write Raw (Cold)
     query_cold = parsed_df.writeStream \
         .format("parquet") \
+        .trigger(processingTime='1 minute') \
         .option("path", "/user/stackable/archive/charts") \
         .option("checkpointLocation", "/user/stackable/checkpoints/charts_cold") \
         .outputMode("append") \
@@ -164,8 +167,9 @@ data:
     # Write Aggregated (Hot) -> MongoDB
     query_hot = analytics_df.writeStream \
         .format("mongodb") \
+        .trigger(processingTime='10 seconds') \
         .option("checkpointLocation", "/user/stackable/checkpoints/charts_hot") \
-        .option("database", "bigdata") \
+        .option("database", "game_analytics") \
         .option("collection", "steam_charts") \
         .outputMode("complete") \
         .start()
@@ -234,6 +238,7 @@ data:
     # Write Raw (Cold)
     query_cold = parsed_df.writeStream \
         .format("parquet") \
+        .trigger(processingTime='1 minute') \
         .option("path", "/user/stackable/archive/players") \
         .option("checkpointLocation", "/user/stackable/checkpoints/players_cold") \
         .outputMode("append") \
@@ -242,8 +247,9 @@ data:
     # Write Aggregated (Hot) -> MongoDB
     query_hot = analytics_df.writeStream \
         .format("mongodb") \
+        .trigger(processingTime='10 seconds') \
         .option("checkpointLocation", "/user/stackable/checkpoints/players_hot") \
-        .option("database", "bigdata") \
+        .option("database", "game_analytics") \
         .option("collection", "steam_players") \
         .outputMode("complete") \
         .start()
