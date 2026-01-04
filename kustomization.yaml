@@ -10,7 +10,6 @@ configMapGenerator:
     files:
       - provisioning/dashboards/dashboard.yml
       - provisioning/dashboards/mongodb_dashboard.json
-      - provisioning/dashboards/prometheus_dashboard.json
 
 resources:
   - k8s/monitoring/grafana/grafana-deployment.yaml
