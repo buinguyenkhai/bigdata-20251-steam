@@ -1,6 +1,8 @@
 # MongoDB Data Verification Script for Steam Analytics
 # This script verifies data in all 3 MongoDB collections
 
+$ErrorActionPreference = 'SilentlyContinue'
+
 Write-Host "╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║       MongoDB Data Verification - Steam Analytics             ║" -ForegroundColor Cyan
 Write-Host "╚═══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
@@ -18,13 +20,6 @@ if (-not $mongoPod) {
 Write-Host "Found MongoDB pod: $mongoPod" -ForegroundColor Green
 Write-Host ""
 
-# Function to run MongoDB command and get result
-function Invoke-MongoCommand {
-    param([string]$command)
-    $result = kubectl exec $mongoPod -- mongosh bigdata --quiet --eval $command 2>$null
-    return $result
-}
-
 # Check each collection
 $collections = @("steam_reviews", "steam_charts", "steam_players")
 $results = @{}
@@ -36,8 +31,13 @@ foreach ($collection in $collections) {
     
     # Get document count
     $countCmd = "db.$collection.countDocuments()"
-    $count = kubectl exec $mongoPod -- mongosh bigdata --quiet --eval $countCmd 2>$null
-    $count = [int]($count -replace '\D', '')
+    $rawCount = kubectl exec $mongoPod -- mongosh bigdata --quiet --eval $countCmd 2>$null
+    
+    # Clean output to get just numbers
+    $count = 0
+    if ($rawCount -match '(\d+)') {
+        $count = [int]$matches[1]
+    }
     
     $results[$collection] = $count
     
@@ -48,6 +48,8 @@ foreach ($collection in $collections) {
         Write-Host "  📝 Sample Document:" -ForegroundColor Cyan
         $sampleCmd = "JSON.stringify(db.$collection.findOne(), null, 2)"
         $sample = kubectl exec $mongoPod -- mongosh bigdata --quiet --eval $sampleCmd 2>$null
+        # Truncate if too long for display
+        if ($sample.Length -gt 1000) { $sample = $sample.Substring(0, 1000) + "... (truncated)" }
         Write-Host $sample -ForegroundColor Gray
     } else {
         Write-Host "  ⚠️  Collection is EMPTY" -ForegroundColor Yellow
@@ -65,7 +67,11 @@ foreach ($collection in $collections) {
     $count = $results[$collection]
     $totalDocs += $count
     $status = if ($count -gt 0) { "✅ OK" } else { "⚠️  EMPTY" }
-    $line = "║  {0,-18} │ {1,-9} │ {2}" -f $collection, $count, $status
+    
+    # Format line manually to ensure alignment
+    $colStr = $collection.PadRight(18)
+    $countStr = "$count".PadRight(9)
+    $line = "║  $colStr │ $countStr │ $status"
     
     if ($count -gt 0) {
         Write-Host $line -ForegroundColor Green
@@ -85,9 +91,8 @@ if ($totalDocs -gt 0) {
     Write-Host "   2. Wait for Spark jobs to process data" -ForegroundColor Gray
 }
 
-# Provide quick access commands
+# Quick access
 Write-Host ""
 Write-Host "═══ Quick Access Commands ═══" -ForegroundColor Magenta
-Write-Host "  Port Forward: kubectl port-forward svc/mongodb 27017:27017" -ForegroundColor Cyan
 Write-Host "  Shell Access: kubectl exec -it $mongoPod -- mongosh bigdata" -ForegroundColor Cyan
 Write-Host "  Run Queries:  kubectl exec -it $mongoPod -- mongosh bigdata < .\test\demo-queries.js" -ForegroundColor Cyan

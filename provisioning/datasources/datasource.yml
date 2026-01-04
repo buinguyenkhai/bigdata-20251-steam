@@ -2,18 +2,20 @@ apiVersion: 1
 
 datasources:
   - name: MongoDB
+    uid: mongodb-ds
     type: grafana-mongodb-opensource-datasource
     access: proxy
-    url: http://localhost:3333 
+    url: http://localhost:3333
     isDefault: true
     jsonData:
-      mongodb_url: "mongodb://mongodb:27017"
-      mongodb_db: "steam" # May change later
+      mongodb_url: "mongodb://mongodb.default.svc.cluster.local:27017"
+      mongodb_db: "bigdata"
     editable: true
 
   - name: Prometheus
+    uid: prometheus-ds
     type: prometheus
     access: proxy
-    url: http://prometheus:9090 # Internal Docker network name
+    url: http://prometheus:9090
     isDefault: false
     editable: true
