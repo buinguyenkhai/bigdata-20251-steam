@@ -52,11 +52,37 @@ db.steam_charts.createIndex(
 );
 print("✓ Created type + timestamp compound index");
 
+print("\n=== Creating indexes for steam_players collection ===");
+
+// 7. Index on appid for player counts
+db.steam_players.createIndex(
+    { "appid": 1 },
+    { name: "idx_appid", background: true }
+);
+print("✓ Created appid index");
+
+// 8. Compound index for appid + window for time-based queries
+db.steam_players.createIndex(
+    { "appid": 1, "window.start": -1 },
+    { name: "idx_appid_window", background: true }
+);
+print("✓ Created appid + window compound index");
+
+// 9. Index on max_players for ranking queries
+db.steam_players.createIndex(
+    { "max_players": -1 },
+    { name: "idx_max_players", background: true }
+);
+print("✓ Created max_players index");
+
 print("\n=== Verifying indexes ===");
 print("steam_reviews indexes:");
 printjson(db.steam_reviews.getIndexes());
 
 print("\nsteam_charts indexes:");
 printjson(db.steam_charts.getIndexes());
+
+print("\nsteam_players indexes:");
+printjson(db.steam_players.getIndexes());
 
 print("\n=== Index setup complete! ===");
