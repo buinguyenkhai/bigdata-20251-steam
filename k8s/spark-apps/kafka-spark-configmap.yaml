@@ -10,7 +10,7 @@ data:
   process_reviews.py: |
     import os
     from pyspark.sql import SparkSession
-    from pyspark.sql.functions import col, from_json, avg, count, sum, window
+    from pyspark.sql.functions import col, from_json, avg, count, sum, window, when, lit
     from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType, BooleanType
 
     truststore = "/truststore/truststore.p12"
@@ -57,19 +57,38 @@ data:
     # 2. Cast timestamp_created (Integer/Seconds) to TimestampType
     parsed_df = raw_df.select(from_json(col("value").cast("string"), schema).alias("data")).select(
         col("data.app_id"),
+        col("data.review_id"),
         col("data.voted_up").alias("recommended"),
         col("data.votes_up"),
         col("data.weighted_vote_score"),
         col("data.timestamp_created").cast("timestamp").alias("timestamp") 
     )
 
-    # Aggregation: 1 Hour Windows
+    # Aggregation: 1 Hour Windows (Overall Sentiment)
     analytics_df = parsed_df \
         .withWatermark("timestamp", "10 minutes") \
         .groupBy(window(col("timestamp"), "1 hour"), col("recommended")) \
         .agg(
             count("app_id").alias("total_reviews"),
             avg("weighted_vote_score").alias("avg_quality")
+        )
+
+    # Review Bomb Detection: Per-game OVERALL aggregation (no windowing)
+    # Shows realistic positive/negative ratios matching Steam's display
+    # Flags games where negative_ratio > 0.8 AND total_reviews > 10
+    review_bomb_df = parsed_df \
+        .groupBy(col("app_id")) \
+        .agg(
+            count("*").alias("total_reviews"),
+            sum(when(col("recommended") == False, 1).otherwise(0)).alias("negative_count"),
+            sum(when(col("recommended") == True, 1).otherwise(0)).alias("positive_count"),
+            avg("weighted_vote_score").alias("avg_quality")
+        ) \
+        .withColumn("negative_ratio", col("negative_count") / col("total_reviews")) \
+        .withColumn("positive_ratio", col("positive_count") / col("total_reviews")) \
+        .withColumn("is_review_bomb", 
+            when((col("negative_ratio") > 0.8) & (col("total_reviews") > 10), lit(True))
+            .otherwise(lit(False))
         )
 
     # Write Raw (Cold)
@@ -88,6 +107,16 @@ data:
         .option("checkpointLocation", "/user/stackable/checkpoints/reviews_hot") \
         .option("database", "game_analytics") \
         .option("collection", "steam_reviews") \
+        .outputMode("complete") \
+        .start()
+
+    # Write Review Bomb Alerts -> MongoDB
+    query_bomb = review_bomb_df.writeStream \
+        .format("mongodb") \
+        .trigger(processingTime='10 seconds') \
+        .option("checkpointLocation", "/user/stackable/checkpoints/review_bombs_v4") \
+        .option("database", "bigdata") \
+        .option("collection", "review_bomb_alerts") \
         .outputMode("complete") \
         .start()
 
