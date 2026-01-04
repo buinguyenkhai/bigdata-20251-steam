@@ -7,27 +7,29 @@ A real-time big data pipeline for Steam game analytics using **Kappa Architectur
 This pipeline follows the **Kappa Architecture** pattern - a single streaming path that writes to both hot (MongoDB) and cold (HDFS) storage.
 
 ```
-┌──────────────┐    ┌─────────────────────┐    ┌─────────────────────────────┐
-│  Steam API   │───▶│  steam_to_kafka.py  │───▶│  Kafka Topics               │
-│  - appdetails│    │  (Producer)         │    │  - game_info (metadata)     │
-│  - appreviews│    └─────────────────────┘    │  - game_comments (reviews)  │
-│  - search    │                               └──────────────┬──────────────┘
-└──────────────┘                                              │
-                                           ┌──────────────────┴──────────────────┐
-                                           ▼                                     ▼
-                              ┌────────────────────────┐          ┌────────────────────────┐
-                              │  steam-charts-app      │          │  steam-reviews-app     │
-                              │  (Spark Streaming)     │          │  (Spark Streaming)     │
-                              └───────────┬────────────┘          └───────────┬────────────┘
-                                          │                                   │
-                           ┌──────────────┴──────────────┐     ┌──────────────┴──────────────┐
-                           ▼                             ▼     ▼                             ▼
-                    ┌────────────┐              ┌─────────────────┐              ┌────────────┐
-                    │ HDFS       │              │ MongoDB         │              │ HDFS       │
-                    │ /archive/  │              │ game_analytics  │              │ /archive/  │
-                    │ charts/    │              │ (hot storage)   │              │ reviews/   │
-                    └────────────┘              └─────────────────┘              └────────────┘
-                    (Cold Storage)              (Hot Storage)                    (Cold Storage)
+┌──────────────┐    ┌─────────────────────┐    ┌───────────────────────────────────┐
+│  Steam API   │───▶│  Producers          │───▶│  Kafka Topics                     │
+│  - appdetails│    │  - producer_charts  │    │  - game_info (metadata)           │
+│  - appreviews│    │  - producer_reviews │    │  - game_comments (reviews)        │
+│  - players   │    │  - producer_players │    │  - game_player_count (players)    │
+└──────────────┘    └─────────────────────┘    └─────────────────┬─────────────────┘
+                                                                 │
+                    ┌────────────────────────────────────────────┼────────────────────────────────────────────┐
+                    │                                            │                                            │
+                    ▼                                            ▼                                            ▼
+       ┌────────────────────────┐             ┌────────────────────────┐             ┌────────────────────────┐
+       │  steam-charts-app      │             │  steam-reviews-app     │             │  steam-players-app     │
+       │  (Spark Streaming)     │             │  (Spark Streaming)     │             │  (Spark Streaming)     │
+       └───────────┬────────────┘             └───────────┬────────────┘             └───────────┬────────────┘
+                   │                                      │                                      │
+        ┌──────────┴──────────┐                ┌──────────┴──────────┐                ┌──────────┴──────────┐
+        ▼                     ▼                ▼                     ▼                ▼                     ▼
+ ┌────────────┐       ┌─────────────┐  ┌────────────┐       ┌─────────────┐  ┌────────────┐       ┌─────────────┐
+ │ HDFS       │       │ MongoDB     │  │ HDFS       │       │ MongoDB     │  │ HDFS       │       │ MongoDB     │
+ │ /archive/  │       │ steam_      │  │ /archive/  │       │ steam_      │  │ /archive/  │       │ steam_      │
+ │ charts/    │       │ charts      │  │ reviews/   │       │ reviews     │  │ players/   │       │ players     │
+ └────────────┘       └─────────────┘  └────────────┘       └─────────────┘  └────────────┘       └─────────────┘
+ (Cold Storage)       (Hot Storage)    (Cold Storage)       (Hot Storage)    (Cold Storage)       (Hot Storage)
 ```
 
 ### Why Kappa over Lambda?
@@ -54,6 +56,13 @@ This pipeline follows the **Kappa Architecture** pattern - a single streaming pa
 - **Kafka TLS**: All Kafka connections use SSL/TLS encryption (port 9093)
 - **Stackable Secret Operator**: Automatic certificate management via ephemeral volumes
 - **HDFS HA**: High Availability with 2 NameNodes and automatic failover
+
+### Analytics Features
+- **Real-time Sentiment Analysis**: 1-hour windowed aggregations of positive/negative reviews
+- **Player Activity Tracking**: 10-minute window aggregations of concurrent player counts
+- **Review Bomb Detection**: Flags games with >80% negative reviews and sufficient volume (>10 reviews)
+- **Genre Distribution**: Game categorization across Steam genre tags
+- **Grafana Dashboard**: Real-time visualization with alerts panel for review bombing
 
 ## Installation (Windows)
 
@@ -277,8 +286,11 @@ This comprehensive test validates the entire data pipeline:
 |------|----------|--------|---------|
 | Cold | `/user/stackable/archive/charts/` | Parquet | Game info archival |
 | Cold | `/user/stackable/archive/reviews/` | Parquet | Reviews archival |
-| Hot | `game_analytics.steam_charts` | MongoDB | Game type aggregations |
-| Hot | `game_analytics.steam_reviews` | MongoDB | Sentiment aggregations |
+| Cold | `/user/stackable/archive/players/` | Parquet | Player counts archival |
+| Hot | `game_analytics.steam_charts` | MongoDB | Genre distribution |
+| Hot | `game_analytics.steam_reviews` | MongoDB | Sentiment aggregations (1-hour windows) |
+| Hot | `game_analytics.steam_players` | MongoDB | Player activity (10-min windows) |
+| Hot | `bigdata.review_bomb_alerts` | MongoDB | Review bomb detection (per-game sentiment ratios) |
 
 ## Configuration
 
