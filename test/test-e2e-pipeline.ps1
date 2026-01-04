@@ -224,7 +224,7 @@ $mongoPod = kubectl get pods -l app=mongodb -o jsonpath='{.items[0].metadata.nam
 if ($mongoPod) {
     $chartsDocsRaw = kubectl exec $mongoPod -- mongosh game_analytics --quiet --eval "db.steam_charts.countDocuments()" 2>$null
     $reviewsDocsRaw = kubectl exec $mongoPod -- mongosh game_analytics --quiet --eval "db.steam_reviews.countDocuments()" 2>$null
-    $playersDocsRaw = kubectl exec $mongoPod -- mongosh bigdata --quiet --eval "db.steam_players.countDocuments()" 2>$null
+    $playersDocsRaw = kubectl exec $mongoPod -- mongosh game_analytics --quiet --eval "db.steam_players.countDocuments()" 2>$null
     # Handle multi-line output - take last non-empty line and extract number
     $chartsDocsLine = ($chartsDocsRaw | Where-Object { $_ -match '\d+' } | Select-Object -Last 1) -replace '\D', ''
     $reviewsDocsLine = ($reviewsDocsRaw | Where-Object { $_ -match '\d+' } | Select-Object -Last 1) -replace '\D', ''

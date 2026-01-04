@@ -20,7 +20,7 @@ if (-not $mongoPod) {
 Write-Host "Found MongoDB pod: $mongoPod" -ForegroundColor Green
 Write-Host ""
 
-# Check each collection
+# Check each collection (all in game_analytics database)
 $collections = @("steam_reviews", "steam_charts", "steam_players")
 $results = @{}
 
@@ -31,7 +31,7 @@ foreach ($collection in $collections) {
     
     # Get document count
     $countCmd = "db.$collection.countDocuments()"
-    $rawCount = kubectl exec $mongoPod -- mongosh bigdata --quiet --eval $countCmd 2>$null
+    $rawCount = kubectl exec $mongoPod -- mongosh game_analytics --quiet --eval $countCmd 2>$null
     
     # Clean output to get just numbers
     $count = 0
@@ -47,7 +47,7 @@ foreach ($collection in $collections) {
         # Get sample document
         Write-Host "  📝 Sample Document:" -ForegroundColor Cyan
         $sampleCmd = "JSON.stringify(db.$collection.findOne(), null, 2)"
-        $sample = kubectl exec $mongoPod -- mongosh bigdata --quiet --eval $sampleCmd 2>$null
+        $sample = kubectl exec $mongoPod -- mongosh game_analytics --quiet --eval $sampleCmd 2>$null
         # Truncate if too long for display
         if ($sample.Length -gt 1000) { $sample = $sample.Substring(0, 1000) + "... (truncated)" }
         Write-Host $sample -ForegroundColor Gray
@@ -94,5 +94,5 @@ if ($totalDocs -gt 0) {
 # Quick access
 Write-Host ""
 Write-Host "═══ Quick Access Commands ═══" -ForegroundColor Magenta
-Write-Host "  Shell Access: kubectl exec -it $mongoPod -- mongosh bigdata" -ForegroundColor Cyan
-Write-Host "  Run Queries:  kubectl exec -it $mongoPod -- mongosh bigdata < .\test\demo-queries.js" -ForegroundColor Cyan
+Write-Host "  Shell Access: kubectl exec -it $mongoPod -- mongosh game_analytics" -ForegroundColor Cyan
+Write-Host "  Run Queries:  kubectl exec -it $mongoPod -- mongosh game_analytics < .\test\demo-queries.js" -ForegroundColor Cyan
